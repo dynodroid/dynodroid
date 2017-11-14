@@ -1,0 +1,136 @@
+<project name="DynodroidFramework" default="compile">
+
+    <target name="clean">
+        <delete dir="build"/>
+    </target>
+
+    <target name="compile">
+	<property environment="env"/>
+	<fail unless="env.SDK_INSTALL" message="Set environment variable SDK_INSTALL to the install directory of android sdk."/>
+        <mkdir dir="build/classes"/>
+        <javac srcdir="src" destdir="build/classes" fork="true" failonerror="true" debug="true" debuglevel="source,lines,vars">
+		<classpath>
+			<pathelement location="${env.SDK_INSTALL}/tools/lib/ddms.jar"/>
+			<pathelement location="${env.SDK_INSTALL}/tools/lib/ddmuilib.jar"/>
+			<pathelement location="${env.SDK_INSTALL}/tools/lib/ddmlib.jar"/>
+                        <pathelement location="libs/mail.jar"/>
+                        <pathelement location="libs/commons-io-2.3.jar"/>
+                        <pathelement location="libs/mysql-connector-java-5.1.20-bin.jar"/>
+                        <pathelement location="libs/org.eclipse.swt-3.1.jar"/>
+                        <pathelement location="libs/traceview.jar"/>
+		</classpath>
+	</javac>
+    </target>
+
+    <target name="jar" depends="compile">
+        <mkdir dir="build/jar"/>
+        <jar destfile="build/jar/dynodroidframework.jar" basedir="build/classes">
+            <manifest>
+                <attribute name="Main-Class" value="edu.gatech.dynodroid.master.MainHarness"/>
+            </manifest>
+        </jar>
+    </target>
+
+    <!--This will Run the dynodoid in its default configuration-->
+    <target name="run" depends="compile">
+	<property environment="env"/>	
+	<fail unless="env.SDK_INSTALL" message="Set environment variable SDK_INSTALL to the install directory of android sdk."/>
+        <java fork="true" classname="edu.gatech.dynodroid.master.MainHarness">
+	<classpath>
+		<pathelement location="build/classes"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddms.jar"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddmuilib.jar"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddmlib.jar"/>
+                <pathelement location="libs/mail.jar"/>
+                <pathelement location="libs/commons-io-2.3.jar"/>
+                <pathelement location="libs/mysql-connector-java-5.1.20-bin.jar"/>
+                <pathelement location="libs/org.eclipse.swt-3.1.jar"/>
+                <pathelement location="libs/traceview.jar"/>
+	</classpath>
+        <arg value="ser"/>
+	<arg value="dynodroid.properties"/>
+	<syspropertyset>
+                <propertyref builtin="all"/>
+            </syspropertyset>	
+	</java>
+    </target>
+
+    <!--This is for debugging-->
+    <target name="debug" depends="compile">
+	<property environment="env"/>	
+	<fail unless="env.SDK_INSTALL" message="Set environment variable SDK_INSTALL to the install directory of android sdk."/>
+        <java fork="true" classname="edu.gatech.dynodroid.master.MainHarness">
+        <jvmarg value="-Xdebug"/>        
+        <jvmarg value="-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=8000"/>
+	<classpath>
+		<pathelement location="build/classes"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddms.jar"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddmuilib.jar"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddmlib.jar"/>
+                <pathelement location="libs/mail.jar"/>
+                <pathelement location="libs/commons-io-2.3.jar"/>
+                <pathelement location="libs/mysql-connector-java-5.1.20-bin.jar"/>
+                <pathelement location="libs/org.eclipse.swt-3.1.jar"/>
+                <pathelement location="libs/traceview.jar"/>
+	</classpath>
+        <arg value="ser"/>
+	<arg value="dynodroid.properties"/>
+	<syspropertyset>
+                <propertyref builtin="all"/>
+            </syspropertyset>	
+	</java>
+    </target>
+
+     <!--This is for RMI Interface (Experimental)-->
+    <target name="runRmi" depends="jar">
+	<property environment="env"/>	
+	<fail unless="env.SDK_INSTALL" message="Set environment variable SDK_INSTALL to the install directory of android sdk."/>
+        <java fork="true" classname="edu.gatech.dynodroid.master.MainHarness">
+        <jvmarg value="-Djava.rmi.server.codebase=file:build/jar/dynodroidframework.jar"/>
+	<classpath>
+		<pathelement location="build/classes"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddms.jar"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddmuilib.jar"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddmlib.jar"/>
+                <pathelement location="libs/mail.jar"/>
+                <pathelement location="libs/commons-io-2.3.jar"/>
+                <pathelement location="libs/mysql-connector-java-5.1.20-bin.jar"/>
+                <pathelement location="libs/org.eclipse.swt-3.1.jar"/>
+                <pathelement location="libs/traceview.jar"/>
+	</classpath>
+        <arg value="rmi"/>
+	<arg value="dynodroid.properties"/>
+	<syspropertyset>
+                <propertyref builtin="all"/>
+            </syspropertyset>	
+	</java>
+    </target>
+
+    <!--This is for RMI Interface (Experimental)-->
+    <target name="debugRmi" depends="jar">
+	<property environment="env"/>	
+	<fail unless="env.SDK_INSTALL" message="Set environment variable SDK_INSTALL to the install directory of android sdk."/>
+        <java fork="true" classname="edu.gatech.dynodroid.master.MainHarness">
+        <jvmarg value="-Xdebug"/>        
+        <jvmarg value="-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=8000"/>
+        <jvmarg value="-Djava.rmi.server.codebase=file:build/jar/dynodroidframework.jar"/>
+	<classpath>
+		<pathelement location="build/classes"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddms.jar"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddmuilib.jar"/>
+		<pathelement location="${env.SDK_INSTALL}/tools/lib/ddmlib.jar"/>
+                <pathelement location="libs/mail.jar"/>
+                <pathelement location="libs/commons-io-2.3.jar"/>
+                <pathelement location="libs/mysql-connector-java-5.1.20-bin.jar"/>
+                <pathelement location="libs/org.eclipse.swt-3.1.jar"/>
+                <pathelement location="libs/traceview.jar"/>
+	</classpath>
+        <arg value="rmi"/>
+	<arg value="dynodroid.properties"/>
+	<syspropertyset>
+                <propertyref builtin="all"/>
+            </syspropertyset>	
+	</java>
+    </target>
+
+</project>

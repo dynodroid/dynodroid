@@ -1,0 +1,34 @@
+package edu.gatech.dynodroid.deviceEvent;
+
+import java.util.ArrayList;
+
+import edu.gatech.dynodroid.hierarchyHelper.IDeviceAction;
+
+/*
+Note: Don't blindly implement your own event using this, you might have to make changes to Am.java
+so that all the data required for the broadcast will be present in the intent.
+*/
+public class <Filler> extends BroadCastAction implements IDeviceAction {
+	
+	public <Filler>(String completeComponentName,ArrayList<String> intFilter) throws Exception{
+		if(completeComponentName != null){
+			this.targetComponentName = completeComponentName;
+			if(intFilter != null && intFilter.size() > 0){
+				this.intentCategories.addAll(intFilter);
+			}
+		} else{
+			throw new Exception("Problem occured while creating <Filler> receiver");
+		}
+	}
+	
+	@Override
+	public BroadCastAction getInstance(String completeComponentName,ArrayList<String> intFilter) throws Exception {
+		return new <Filler>(completeComponentName, intFilter);
+	}
+
+	@Override
+	public String getBroadCastAction(){
+		return "<Filler_2>";
+	}
+
+}

@@ -1,0 +1,3013 @@
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/build/core/combo/HOST_linux-x86.mk /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/build/core/combo/HOST_linux-x86.mk
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/build/core/combo/HOST_linux-x86.mk	2014-04-06 13:43:40.460412854 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/build/core/combo/HOST_linux-x86.mk	2013-05-26 21:23:22.334259525 -0700
+@@ -58,6 +58,6 @@ HOST_GLOBAL_CFLAGS += \
+ 	-include $(call select-android-config-h,linux-x86)
+ 
+ # Disable new longjmp in glibc 2.11 and later. See bug 2967937.
+-HOST_GLOBAL_CFLAGS += -D_FORTIFY_SOURCE=0
++HOST_GLOBAL_CFLAGS += -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0
+ 
+ HOST_NO_UNDEFINED_LDFLAGS := -Wl,--no-undefined
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/Dvm.mk /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/Dvm.mk
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/Dvm.mk	2014-04-06 13:43:41.512412898 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/Dvm.mk	2013-05-26 20:40:56.230366598 -0700
+@@ -264,7 +264,7 @@ MTERP_ARCH_KNOWN := false
+ ifeq ($(dvm_arch),arm)
+   #dvm_arch_variant := armv7-a
+   #LOCAL_CFLAGS += -march=armv7-a -mfloat-abi=softfp -mfpu=vfp
+-  LOCAL_CFLAGS += -Werror
++  #LOCAL_CFLAGS += -Werror
+   MTERP_ARCH_KNOWN := true
+   # Select architecture-specific sources (armv4t, armv5te etc.)
+   LOCAL_SRC_FILES += \
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/Globals.h /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/Globals.h
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/Globals.h	2014-04-06 13:43:41.512412898 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/Globals.h	2013-05-26 20:41:01.618366374 -0700
+@@ -90,6 +90,12 @@ struct DvmGlobals {
+     char*       jdwpHost;
+     int         jdwpPort;
+     bool        jdwpSuspend;
++    
++    /* M3 Method Coverage Data */
++    bool isSetupComplete;
++    //This is true only if targetDexCheckSum is initialized
++    bool needMethodPrinting;
++    uint32_t targetDexChecksum;
+ 
+     /* use wall clock as method profiler clock source? */
+     bool        profilerWallClock;
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/native/dalvik_system_VMDebug.c /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/native/dalvik_system_VMDebug.c
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/native/dalvik_system_VMDebug.c	2014-04-06 13:43:41.580412902 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/native/dalvik_system_VMDebug.c	2013-05-26 20:40:59.586366457 -0700
+@@ -53,6 +53,22 @@ static int getFileDescriptor(Object* obj
+     return fd;
+ }
+ 
++static char** convertStringArrayObject(ArrayObject *arr)
++{
++        char** copiedString = NULL;
++        u8 i=0;
++        
++        if(arr != NULL && arr->length > 0) {
++                copiedString = (char**)malloc((arr->length) * sizeof(char*));
++                int width = sizeof(Object*);
++                for(i=0;i<arr->length;i++) {
++                        StringObject* currObj = (StringObject*)(arr->contents + i*width);
++                        copiedString[i] = dvmCreateCstrFromString(currObj);
++                }
++        }
++
++        return copiedString; 
++}
+ /*
+  * Convert an array of char* into a String[].
+  *
+@@ -340,11 +356,13 @@ static void Dalvik_dalvik_system_VMDebug
+ static void Dalvik_dalvik_system_VMDebug_startMethodTracingNative(const u4* args,
+     JValue* pResult)
+ {
++    ArrayObject* whiteList = (ArrayObject*) args[0];
+     StringObject* traceFileStr = (StringObject*) args[0];
+     Object* traceFd = (Object*) args[1];
+     int bufferSize = args[2];
+-    int flags = args[3];
++    int flags = args[2];
+ 
++    //u8 arrLen = (whiteList != NULL) ? whiteList->length:0;
+     if (bufferSize == 0) {
+         // Default to 8MB per the documentation.
+         bufferSize = 8 * 1024 * 1024;
+@@ -373,7 +391,7 @@ static void Dalvik_dalvik_system_VMDebug
+         }
+     }
+ 
+-    dvmMethodTraceStart(traceFileName != NULL ? traceFileName : "[DDMS]",
++    dvmMethodTraceStart(/*convertStringArrayObject(whiteList)*/NULL,0,traceFileName != NULL ? traceFileName : "[DDMS]",
+         fd, bufferSize, flags, (traceFileName == NULL && fd == -1));
+     free(traceFileName);
+     RETURN_VOID();
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/oo/Object.h /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/oo/Object.h
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/oo/Object.h	2014-04-06 13:43:41.584412902 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/oo/Object.h	2013-05-26 20:42:45.762361994 -0700
+@@ -596,6 +596,7 @@ struct Method {
+ 
+     /* set if method was called during method profiling */
+     bool            inProfile;
++    bool            traced;
+ };
+ 
+ 
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/Profile.c /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/Profile.c
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/Profile.c	2014-04-06 13:43:41.512412898 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/Profile.c	2013-10-06 09:37:12.120824085 -0700
+@@ -204,6 +204,8 @@ bool dvmProfilingStartup(void)
+  */
+ void dvmProfilingShutdown(void)
+ {
++
++   return;
+ #ifdef UPDATE_MAGIC_PAGE
+     if (gDvm.emulatorTracePage != NULL)
+         munmap(gDvm.emulatorTracePage, SYSTEM_PAGE_SIZE);
+@@ -324,6 +326,8 @@ static void dumpMethodList(FILE* fp)
+     dvmHashTableUnlock(gDvm.loadedClasses);
+ }
+ 
++
++
+ /*
+  * Start method tracing.  Method tracing is global to the VM (i.e. we
+  * trace all threads).
+@@ -334,13 +338,48 @@ static void dumpMethodList(FILE* fp)
+  *
+  * On failure, we throw an exception and return.
+  */
+-void dvmMethodTraceStart(const char* traceFileName, int traceFd, int bufferSize,
++void dvmMethodTraceStart(char** whiteList,u8 arrLen,const char* traceFileName, int traceFd, int bufferSize,
+     int flags, bool directToDdms)
+ {
+-    MethodTraceState* state = &gDvm.methodTrace;
+ 
++    return;
++    MethodTraceState* state = &gDvm.methodTrace;
++    state->interestedMethods = whiteList;
++    state->noOfInterestedMethods = arrLen;
++    //We don't care about the input size , we give the maximum possible
++    bufferSize = 16 * 1024 * 1024;
+     assert(bufferSize > 0);
+ 
++    FILE * file;
++    u8 noOfLines = 0;
++    u8 i = 0;
++    file = fopen( "/sdcard/apkPackages.txt" , "r");
++    if (file) {
++            char str[256];
++            while (fscanf(file, "%s", str)!=EOF) {
++                noOfLines++;
++             }
++             fclose(file);
++             state->interestedMethods = (char**)malloc(sizeof(char*)*noOfLines);
++             file = fopen( "/sdcard/apkPackages.txt" , "r");
++             i =0;
++             if(file) {
++                     while (fscanf(file, "%s", str)!=EOF) {
++                        LOGI("White List Entry: %s",str);
++                        state->interestedMethods[i] = (char*)malloc((strlen(str)+1)*sizeof(char));
++                        strcpy(state->interestedMethods[i],str);
++                        i++;
++                     }
++                     fclose(file);
++                     state->noOfInterestedMethods = noOfLines;
++             }
++    }
++
++    if(state->interestedMethods != NULL) {
++        LOGI("YES YES WhiteList Not Null");
++    } else{
++        LOGI("NO NO WhiteList Is NULL :(");
++    }
+     dvmLockMutex(&state->startStopLock);
+     while (state->traceEnabled != 0) {
+         LOGI("TRACE start requested, but already in progress; stopping\n");
+@@ -483,6 +522,7 @@ static u4 getClockOverhead(void)
+  */
+ bool dvmIsMethodTraceActive(void)
+ {
++   return true;
+     const MethodTraceState* state = &gDvm.methodTrace;
+     return state->traceEnabled;
+ }
+@@ -493,6 +533,7 @@ bool dvmIsMethodTraceActive(void)
+  */
+ void dvmMethodTraceStop(void)
+ {
++    return;
+     MethodTraceState* state = &gDvm.methodTrace;
+     u8 elapsed;
+ 
+@@ -666,19 +707,113 @@ void dvmMethodTraceStop(void)
+ }
+ 
+ 
++int needsToBeFiltered(const char* className, const char** interestedMethods,u8 noOfInterestedMethods,int adler32) {
++   if(className != NULL) {
++        if(interestedMethods == NULL || noOfInterestedMethods == 0) {
++                if(!strncmp(className,"Landroid/",9)) {
++                        return 1;
++                } else if(!strncmp(className,"Ljava/",6)) {
++                        return 1;
++                } else if(!strncmp(className,"Ldalvik/",8)) {
++                        return 1;
++                } else if(!strncmp(className,"Lorg/apache/",12)) {
++                        return 1;
++                } else if(!strncmp(className,"Lcom/android",12)) {
++                        return 1;
++                } else if(!strncmp(className,"Lsun/",5)) {
++                        return 1;
++                } else if(!strncmp(className,"Llibcore/",9)) {
++                        return 1;
++                } else if(!strncmp(className,"Lcom/ibm/",9)) {
++                        return 1;
++                } else if(!strncmp(className,"L$Proxy",7)) {
++                        return 1;
++                }
++        }
++        u8 i=0;
++        char adlerStr[16];        
++        sprintf(adlerStr,"%x",adler32);
++        for(i=0;i<noOfInterestedMethods;i++) {
++                if(!strcmp(adlerStr,interestedMethods[i])) {
++                        return 0;
++                }
++        }
++
++        
++   }
++   return 1;
++}
++
++void initializeDvmForM3(void)
++{
++    FILE * file;
++    file = fopen("/sdcard/apkPackages.txt" , "r");                 
++    uint32_t checksum;
++    if (file) {
++        if(fscanf(file, "%x", &checksum)!=EOF) {
++                gDvm.isSetupComplete = true;
++                gDvm.needMethodPrinting = true;
++                gDvm.targetDexChecksum = checksum;
++                LOGE("DVM_M3 Initialized, target check sum:%x\n",gDvm.targetDexChecksum);  
++                updateActiveProfilers(1);              
++        }
++        fclose(file);
++    }  
++        
++}
++
++void methodPrintForM3(const Method* method)
++{
++         if( method != NULL && !(method->traced) && method->clazz != NULL && method->clazz->pDvmDex != NULL) {                
++                //LOGE("DVM target check sum:%s",gDvm.targetDexChecksum);
++                bool* isTraced = &(method->traced);
++                /*char adlerStr[16];        
++                sprintf(adlerStr,"%x",method->clazz->pDvmDex->pHeader->checksum);
++                LOGE("DVM Method Trace Called for dex file:%s for class:%s, method:%s",adlerStr,method->clazz->descriptor,method->name);*/
++                *isTraced = true;
++                if(method->clazz->pDvmDex->pHeader->checksum == gDvm.targetDexChecksum) {
++                    LOGD("DVM_M3_Method:%s!%s",method->clazz->descriptor,method->name);    
++                }                
++        }
++}
++
+ /*
+  * We just did something with a method.  Emit a record.
+  *
+  * Multiple threads may be banging on this all at once.  We use atomic ops
+  * rather than mutexes for speed.
+  */
+-void dvmMethodTraceAdd(Thread* self, const Method* method, int action)
++void dvmMethodTraceAdd(Thread* self,const Method* method, int action)
+ {
++        
++   return;
++
+     MethodTraceState* state = &gDvm.methodTrace;
+     u4 clockDiff, methodVal;
+     int oldOffset, newOffset;
+     u1* ptr;
++    bool* isTraced = &(method->traced);
+ 
++    if(method != NULL && method->clazz != NULL && method->clazz->pDvmDex != NULL) {
++        if(needsToBeFiltered(method->clazz->descriptor,state->interestedMethods,state->noOfInterestedMethods,method->clazz->pDvmDex->pHeader->checksum)) {
++                return;
++        }
++        
++    } else{
++       return;
++    }
++
++    /*if(method != NULL && method->clazz != NULL) {
++              if(method->traced || needsToBeFiltered(method->clazz->descriptor,state->interestedMethods,state->noOfInterestedMethods)) {
++                return;
++              }
++              if(method->clazz->pDvmDex != NULL) {
++                        LOGI("DEX CheckSum:%d,%x",method->clazz->pDvmDex->pHeader->checksum,method->clazz->pDvmDex->pHeader->checksum);
++               }
++              //LOGD("Class Descriptor for method:%s",method->clazz->descriptor);
++              //LOGD("Class Descriptor_1 for method:%s",method->clazz->descriptorAlloc);
++     } */
++     *isTraced = true;
+     /*
+      * We can only access the per-thread CPU clock from within the
+      * thread, so we have to initialize the base time on the first use.
+@@ -733,6 +868,8 @@ void dvmMethodTraceAdd(Thread* self, con
+  */
+ void dvmEmitEmulatorTrace(const Method* method, int action)
+ {
++
++   return;
+ #ifdef UPDATE_MAGIC_PAGE
+     /*
+      * We store the address of the Dalvik bytecodes to the memory-mapped
+@@ -799,10 +936,12 @@ void dvmEmitEmulatorTrace(const Method*
+  */
+ void dvmMethodTraceGCBegin(void)
+ {
++    return;
+     TRACE_METHOD_ENTER(dvmThreadSelf(), gDvm.methodTrace.gcMethod);
+ }
+ void dvmMethodTraceGCEnd(void)
+ {
++    return;
+     TRACE_METHOD_EXIT(dvmThreadSelf(), gDvm.methodTrace.gcMethod);
+ }
+ 
+@@ -811,10 +950,12 @@ void dvmMethodTraceGCEnd(void)
+  */
+ void dvmMethodTraceClassPrepBegin(void)
+ {
++    return;
+     TRACE_METHOD_ENTER(dvmThreadSelf(), gDvm.methodTrace.classPrepMethod);
+ }
+ void dvmMethodTraceClassPrepEnd(void)
+ {
++    return;
+     TRACE_METHOD_EXIT(dvmThreadSelf(), gDvm.methodTrace.classPrepMethod);
+ }
+ 
+@@ -824,6 +965,7 @@ void dvmMethodTraceClassPrepEnd(void)
+  */
+ void dvmEmulatorTraceStart(void)
+ {
++   return;
+     /* If we could not map the emulator trace page, then do not enable tracing */
+     if (gDvm.emulatorTracePage == NULL)
+         return;
+@@ -841,6 +983,7 @@ void dvmEmulatorTraceStart(void)
+  */
+ void dvmEmulatorTraceStop(void)
+ {
++     return;
+     if (gDvm.emulatorTraceEnableCount == 0) {
+         LOGE("ERROR: emulator tracing not enabled\n");
+         return;
+@@ -858,6 +1001,7 @@ void dvmEmulatorTraceStop(void)
+  */
+ void dvmStartInstructionCounting()
+ {
++    return;
+     updateActiveProfilers(1);
+     /* in theory we should make this an atomic inc; in practice not important */
+     gDvm.instructionCountEnableCount++;
+@@ -868,6 +1012,7 @@ void dvmStartInstructionCounting()
+  */
+ void dvmStopInstructionCounting()
+ {
++     return;
+     if (gDvm.instructionCountEnableCount == 0) {
+         LOGE("ERROR: instruction counting not enabled\n");
+         dvmAbort();
+@@ -883,6 +1028,7 @@ void dvmStopInstructionCounting()
+  */
+ void dvmStartAllocCounting(void)
+ {
++     return;
+     gDvm.allocProf.enabled = true;
+ }
+ 
+@@ -891,5 +1037,6 @@ void dvmStartAllocCounting(void)
+  */
+ void dvmStopAllocCounting(void)
+ {
++     return;
+     gDvm.allocProf.enabled = false;
+ }
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/Profile.h /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/Profile.h
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/dalvik/vm/Profile.h	2014-04-06 13:43:41.512412898 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/dalvik/vm/Profile.h	2013-05-26 20:41:01.190366391 -0700
+@@ -58,6 +58,8 @@ typedef struct MethodTraceState {
+     volatile int curOffset;
+     u8      startWhen;
+     int     overflow;
++    char**      interestedMethods;
++    u8          noOfInterestedMethods;
+ } MethodTraceState;
+ 
+ /*
+@@ -99,7 +101,7 @@ typedef struct AllocProfState {
+ /*
+  * Start/stop method tracing.
+  */
+-void dvmMethodTraceStart(const char* traceFileName, int traceFd, int bufferSize,
++void dvmMethodTraceStart(char** whiteList,u8 arrLen,const char* traceFileName, int traceFd, int bufferSize,
+         int flags, bool directToDdms);
+ bool dvmIsMethodTraceActive(void);
+ void dvmMethodTraceStop(void);
+@@ -129,6 +131,12 @@ enum {
+  */
+ #define TRACE_METHOD_ENTER(_self, _method)                                 \
+     do {                                                                    \
++        if(!gDvm.isSetupComplete) {                                         \
++                initializeDvmForM3();                                       \
++        }                                                                   \
++        if(gDvm.needMethodPrinting) {                                       \
++                methodPrintForM3(_method);                                  \
++        }                                                                   \
+         if (gDvm.activeProfilers != 0) {                                    \
+             if (gDvm.methodTrace.traceEnabled)                              \
+                 dvmMethodTraceAdd(_self, _method, METHOD_TRACE_ENTER);      \
+@@ -155,7 +163,9 @@ enum {
+         }                                                                   \
+     } while(0);
+ 
+-void dvmMethodTraceAdd(struct Thread* self, const Method* method, int action);
++void dvmMethodTraceAdd(struct Thread* self,const Method* method, int action);
++void initializeDvmForM3(void);
++void methodPrintForM3(const Method* method);
+ void dvmEmitEmulatorTrace(const Method* method, int action);
+ 
+ void dvmMethodTraceGCBegin(void);
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeyCoverageTrigger.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeyCoverageTrigger.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeyCoverageTrigger.java	1969-12-31 16:00:00.000000000 -0800
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeyCoverageTrigger.java	2013-05-26 21:22:29.242261761 -0700
+@@ -0,0 +1,82 @@
++/*
++ * Copyright (C) 2008 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.commands.monkey;
++
++import android.app.IActivityManager;
++import android.content.ComponentName;
++import android.content.Intent;
++import android.os.Bundle;
++import android.os.RemoteException;
++import android.view.IWindowManager;
++import android.util.Log;
++import android.content.IIntentReceiver;
++
++/**
++ * monkey activity event
++ */
++public class MonkeyCoverageTrigger extends MonkeyEvent { 
++    
++    public MonkeyCoverageTrigger() {
++        super(EVENT_TYPE_ACTIVITY);
++    }
++
++    /**
++     * @return Intent for the new activity
++     */
++    private Intent getEvent() {        
++        Intent intent = new Intent();
++        intent.setAction("edu.gatech.m3.emma.COLLECT_COVERAGE"); 
++        return intent;
++    }
++
++    @Override
++    public int injectEvent(IWindowManager iwm, IActivityManager iam, int verbose) {
++        Intent intent = getEvent();
++        IntentReceiver receiver = new IntentReceiver();
++        System.out.println("Broadcasting: " + intent);
++        try{
++                iam.broadcastIntent(null, intent, null, receiver, 0, null, null, null, true, false);
++        } catch(Exception e) {
++                e.printStackTrace();
++        }
++        receiver.waitForFinish();
++        return MonkeyEvent.INJECT_SUCCESS;
++    }
++
++    private class IntentReceiver extends IIntentReceiver.Stub {
++        private boolean mFinished = false;
++
++        public synchronized void performReceive(
++                Intent intent, int rc, String data, Bundle ext, boolean ord,
++                boolean sticky) {
++            String line = "Broadcast completed: result=" + rc;
++            if (data != null) line = line + ", data=\"" + data + "\"";
++            if (ext != null) line = line + ", extras: " + ext;
++            System.out.println(line);
++            mFinished = true;
++            notifyAll();
++        }
++
++        public synchronized void waitForFinish() {
++            try {
++                while (!mFinished) wait();
++            } catch (InterruptedException e) {
++                throw new IllegalStateException(e);
++            }
++        }
++    }
++}
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeyInstrumentedActivityEvent.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeyInstrumentedActivityEvent.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeyInstrumentedActivityEvent.java	1969-12-31 16:00:00.000000000 -0800
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeyInstrumentedActivityEvent.java	2013-05-26 21:22:28.366261793 -0700
+@@ -0,0 +1,86 @@
++/*
++ * Copyright (C) 2008 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.commands.monkey;
++
++import android.app.IActivityManager;
++import android.content.ComponentName;
++import android.content.Intent;
++import android.os.Bundle;
++import android.os.RemoteException;
++import android.view.IWindowManager;
++import android.util.Log;
++
++/**
++ * monkey activity event
++ */
++public class MonkeyInstrumentedActivityEvent extends MonkeyEvent {    
++    private ComponentName mApp; 
++    long mAlarmTime = 0;
++    
++    public MonkeyInstrumentedActivityEvent(ComponentName app) {
++        super(EVENT_TYPE_ACTIVITY);
++        mApp = app;
++    }
++
++    public MonkeyInstrumentedActivityEvent(ComponentName app, long arg) {
++        super(EVENT_TYPE_ACTIVITY);
++        mApp = app;
++        mAlarmTime = arg;
++    }
++
++    /**
++     * @return Intent for the new activity
++     */
++    private Intent getEvent() {        
++        Intent intent = new Intent(Intent.ACTION_MAIN);
++        intent.addCategory(Intent.CATEGORY_LAUNCHER);
++        intent.setComponent(mApp);
++        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);        
++        return intent;
++    }
++
++    @Override
++    public int injectEvent(IWindowManager iwm, IActivityManager iam, int verbose) {
++        Intent intent = getEvent();
++        if (verbose > 0) {
++            System.out.println(":Switch: " + intent.toURI());
++        }
++
++        if (mAlarmTime != 0){
++            Bundle args = new Bundle();
++            args.putLong("alarmTime", mAlarmTime);
++            intent.putExtras(args);
++        }
++
++        Bundle args = new Bundle();
++        args.putString("coverage","true");
++
++        try {
++            iam.startInstrumentation(mApp, null, 0, args, null);
++        } catch (RemoteException e) {
++            System.err.println("** Failed talking with activity manager!");
++            return MonkeyEvent.INJECT_ERROR_REMOTE_EXCEPTION;
++        } catch (SecurityException e) {
++            if (verbose > 0) {
++                System.out.println("** Permissions error starting activity "
++                        + intent.toURI());
++            }
++            return MonkeyEvent.INJECT_ERROR_SECURITY_EXCEPTION;
++        }
++        return MonkeyEvent.INJECT_SUCCESS;
++    }
++}
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/Monkey.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/Monkey.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/Monkey.java	2014-04-06 13:43:42.032412919 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/Monkey.java	2013-05-26 21:22:28.486261789 -0700
+@@ -51,6 +51,9 @@ import java.util.HashSet;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Random;
++import java.io.FileInputStream;
++import java.io.FileOutputStream;
++import java.io.OutputStream;
+ 
+ /**
+  * Application that injects random key events and other actions into the system.
+@@ -112,6 +115,10 @@ public class Monkey {
+      */
+     private boolean mCountEvents = true;
+ 
++    private long coverageInterval = 0;
++    private boolean insapp = false;
++    private String instrumentedPackageName = null;
++
+     /**
+      * This is set by the ActivityController thread to request collection of ANR
+      * trace files
+@@ -168,6 +175,7 @@ public class Monkey {
+     /** Applications we can switch to. */
+     private ArrayList<ComponentName> mMainApps = new ArrayList<ComponentName>();
+ 
++    private MonkeyInstrumentedActivityEvent lastKnownActivityStart = null;
+     /** The delay between event inputs **/
+     long mThrottle = 0;
+ 
+@@ -575,7 +583,7 @@ public class Monkey {
+             if (mVerbose >= 2) { // check seeding performance
+                 System.out.println("// Seeded: " + mSeed);
+             }
+-            mEventSource = new MonkeySourceRandom(mRandom, mMainApps, mThrottle, mRandomizeThrottle);
++            mEventSource = new MonkeySourceRandom(mRandom, mMainApps, mThrottle, mRandomizeThrottle,insapp);
+             mEventSource.setVerbose(mVerbose);
+             // set any of the factors that has been set
+             for (int i = 0; i < MonkeySourceRandom.FACTORZ_COUNT; i++) {
+@@ -585,7 +593,7 @@ public class Monkey {
+             }
+ 
+             // in random mode, we start with a random activity
+-            ((MonkeySourceRandom) mEventSource).generateActivity();
++           ((MonkeySourceRandom) mEventSource).generateActivity();
+         }
+ 
+         // validate source generator
+@@ -765,7 +773,12 @@ public class Monkey {
+                 } else if (opt.equals("-h")) {
+                     showUsage();
+                     return false;
+-                } else {
++                } else if (opt.equals("--getcover")) {
++                    coverageInterval = nextOptionLong("Coverage fetch interval (in number of events)");
++                } else if(opt.equals("-m")) {
++                       insapp = true;
++                       instrumentedPackageName = nextOptionData();
++                }else {
+                     System.err.println("** Error: Unknown option: " + opt);
+                     showUsage();
+                     return false;
+@@ -923,38 +936,42 @@ public class Monkey {
+      */
+     private boolean getMainApps() {
+         try {
+-            final int N = mMainCategories.size();
+-            for (int i = 0; i < N; i++) {
+-                Intent intent = new Intent(Intent.ACTION_MAIN);
+-                String category = mMainCategories.get(i);
+-                if (category.length() > 0) {
+-                    intent.addCategory(category);
+-                }
+-                List<ResolveInfo> mainApps = mPm.queryIntentActivities(intent, null, 0);
+-                if (mainApps == null || mainApps.size() == 0) {
+-                    System.err.println("// Warning: no activities found for category " + category);
+-                    continue;
+-                }
+-                if (mVerbose >= 2) { // very verbose
+-                    System.out.println("// Selecting main activities from category " + category);
+-                }
+-                final int NA = mainApps.size();
+-                for (int a = 0; a < NA; a++) {
+-                    ResolveInfo r = mainApps.get(a);
+-                    String packageName = r.activityInfo.applicationInfo.packageName;
+-                    if (checkEnteringPackage(packageName)) {
++            if(!insapp) {
++                    final int N = mMainCategories.size();
++                    for (int i = 0; i < N; i++) {
++                        Intent intent = new Intent(Intent.ACTION_MAIN);
++                        String category = mMainCategories.get(i);
++                        if (category.length() > 0) {
++                            intent.addCategory(category);
++                        }
++                        List<ResolveInfo> mainApps = mPm.queryIntentActivities(intent, null, 0);
++                        if (mainApps == null || mainApps.size() == 0) {
++                            System.err.println("// Warning: no activities found for category " + category);
++                            continue;
++                        }
+                         if (mVerbose >= 2) { // very verbose
+-                            System.out.println("//   + Using main activity " + r.activityInfo.name
+-                                    + " (from package " + packageName + ")");
++                            System.out.println("// Selecting main activities from category " + category);
+                         }
+-                        mMainApps.add(new ComponentName(packageName, r.activityInfo.name));
+-                    } else {
+-                        if (mVerbose >= 3) { // very very verbose
+-                            System.out.println("//   - NOT USING main activity "
+-                                    + r.activityInfo.name + " (from package " + packageName + ")");
++                        final int NA = mainApps.size();
++                        for (int a = 0; a < NA; a++) {
++                            ResolveInfo r = mainApps.get(a);
++                            String packageName = r.activityInfo.applicationInfo.packageName;
++                            if (checkEnteringPackage(packageName)) {
++                                if (mVerbose >= 2) { // very verbose
++                                    System.out.println("//   + Using main activity " + r.activityInfo.name
++                                            + " (from package " + packageName + ")");
++                                }
++                                mMainApps.add(new ComponentName(packageName, r.activityInfo.name));
++                            } else {
++                                if (mVerbose >= 3) { // very very verbose
++                                    System.out.println("//   - NOT USING main activity "
++                                            + r.activityInfo.name + " (from package " + packageName + ")");
++                                }
++                            }
+                         }
+                     }
+-                }
++            } else{
++                mMainApps.add(ComponentName.unflattenFromString(instrumentedPackageName));
+             }
+         } catch (RemoteException e) {
+             System.err.println("** Failed talking with package manager!");
+@@ -1018,9 +1035,17 @@ public class Monkey {
+                     }
+                 }
+                 if (mAbort) {
+-                    System.out.println("** Monkey aborted due to error.");
+-                    System.out.println("Events injected: " + eventCounter);
+-                    return eventCounter;
++                    if(insapp) {
++                        System.out.println("M3Custom: App Crashed: got ANR, we will restart the activity till all events are consumed");
++                        System.out.println("we will start the last known activity event to start with");
++                        if(lastKnownActivityStart != null) {
++                                lastKnownActivityStart.injectEvent(mWm, mAm, mVerbose);
++                        }
++                    } else {
++                            System.out.println("** Monkey aborted due to error.");
++                            System.out.println("Events injected: " + eventCounter);
++                            return eventCounter;
++                    }
+                 }
+             }
+ 
+@@ -1043,6 +1068,19 @@ public class Monkey {
+ 
+             MonkeyEvent ev = mEventSource.getNextEvent();
+             if (ev != null) {
++                if(insapp) {                        
++                        if((lastKnownActivityStart == null) && (ev instanceof MonkeyInstrumentedActivityEvent)) {
++                                lastKnownActivityStart = (MonkeyInstrumentedActivityEvent)ev;
++                        }
++                        if(ev instanceof MonkeyInstrumentedActivityEvent) {
++                                System.out.println("Triggerring Coverage dump at:"+eventCounter);
++                                (new MonkeyCoverageTrigger()).injectEvent(mWm, mAm, mVerbose);
++                                try{
++                                Thread.sleep(3000);
++                                } catch(Exception e) {
++                                }
++                        }
++                }
+                 int injectCode = ev.injectEvent(mWm, mAm, mVerbose);
+                 if (injectCode == MonkeyEvent.INJECT_FAIL) {
+                     if (ev instanceof MonkeyKeyEvent) {
+@@ -1079,11 +1117,32 @@ public class Monkey {
+                     break;
+                 }
+             }
++            if(insapp && coverageInterval > 0 && (eventCounter % coverageInterval == 0)) {
++                copyFile("/mnt/sdcard/coverage.ec","/mnt/sdcard/coverage_" +  (eventCounter/coverageInterval) + ".ec");             
++            }
++        }
++        if(insapp && coverageInterval > 0) {
++                copyFile("/mnt/sdcard/coverage.ec","/mnt/sdcard/coverage_" +  (eventCounter/coverageInterval) + ".ec");             
+         }
+         System.out.println("Events injected: " + eventCounter);
+         return eventCounter;
+     }
+ 
++    private void copyFile(String srcPath,String destPath) {
++       try{
++                InputStream in = new FileInputStream(srcPath);
++                OutputStream out = new FileOutputStream(destPath);
++                byte[] buf = new byte[1024];
++                int len;
++                while ((len = in.read(buf)) > 0) {
++                   out.write(buf, 0, len);
++                }
++                in.close();
++                out.close(); 
++        } catch(Exception e) {
++                e.printStackTrace();
++        }
++    }
+     /**
+      * Send SIGNAL_USR1 to all processes. This will generate large (5mb)
+      * profiling reports in data/misc, so use with care.
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeySourceRandom.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeySourceRandom.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeySourceRandom.java	2014-04-06 13:43:42.036412920 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/development/cmds/monkey/src/com/android/commands/monkey/MonkeySourceRandom.java	2013-05-26 21:22:28.298261796 -0700
+@@ -203,6 +203,7 @@ public class MonkeySourceRandom implemen
+     private int mVerbose = 0;
+     private long mThrottle = 0;
+ 
++    private boolean insact = false;
+     private boolean mKeyboardOpen = false;
+ 
+     /**
+@@ -252,6 +253,27 @@ public class MonkeySourceRandom implemen
+         mQ = new MonkeyEventQueue(random, throttle, randomizeThrottle);
+     }
+ 
++    
++    public MonkeySourceRandom(Random random, ArrayList<ComponentName> MainApps,
++            long throttle, boolean randomizeThrottle,boolean instrumentActivity) {
++        // default values for random distributions
++        // note, these are straight percentages, to match user input (cmd line args)
++        // but they will be converted to 0..1 values before the main loop runs.
++        mFactors[FACTOR_TOUCH] = 15.0f;
++        mFactors[FACTOR_MOTION] = 10.0f;
++        mFactors[FACTOR_TRACKBALL] = 15.0f;
++        mFactors[FACTOR_NAV] = 25.0f;
++        mFactors[FACTOR_MAJORNAV] = 15.0f;
++        mFactors[FACTOR_SYSOPS] = 2.0f;
++        mFactors[FACTOR_APPSWITCH] = 2.0f;
++        mFactors[FACTOR_FLIP] = 1.0f;
++        mFactors[FACTOR_ANYTHING] = 15.0f;
++        insact = instrumentActivity;
++        mRandom = random;
++        mMainApps = MainApps;
++        mQ = new MonkeyEventQueue(random, throttle, randomizeThrottle);
++    }
++
+     /**
+      * Adjust the percentages (after applying user values) and then normalize to a 0..1 scale.
+      */
+@@ -487,9 +509,15 @@ public class MonkeySourceRandom implemen
+             } else if (cls < mFactors[FACTOR_SYSOPS]) {
+                 lastKey = SYS_KEYS[mRandom.nextInt(SYS_KEYS.length)];
+             } else if (cls < mFactors[FACTOR_APPSWITCH]) {
+-                MonkeyActivityEvent e = new MonkeyActivityEvent(mMainApps.get(
++                 if(insact) {
++                        MonkeyInstrumentedActivityEvent e = new MonkeyInstrumentedActivityEvent(mMainApps.get(
+                         mRandom.nextInt(mMainApps.size())));
+-                mQ.addLast(e);
++                        mQ.addLast(e);
++                } else {
++                        MonkeyActivityEvent e = new MonkeyActivityEvent(mMainApps.get(
++                        mRandom.nextInt(mMainApps.size())));
++                        mQ.addLast(e);
++                }
+                 return;
+             } else if (cls < mFactors[FACTOR_FLIP]) {
+                 MonkeyFlipEvent e = new MonkeyFlipEvent(mKeyboardOpen);
+@@ -527,9 +555,16 @@ public class MonkeySourceRandom implemen
+      * generate an activity event
+      */
+     public void generateActivity() {
+-        MonkeyActivityEvent e = new MonkeyActivityEvent(mMainApps.get(
++        if(insact) {
++                MonkeyInstrumentedActivityEvent e = new MonkeyInstrumentedActivityEvent(mMainApps.get(
+                 mRandom.nextInt(mMainApps.size())));
+-        mQ.addLast(e);
++                mQ.addLast(e);
++        } else{
++                MonkeyActivityEvent e = new MonkeyActivityEvent(mMainApps.get(
++                mRandom.nextInt(mMainApps.size())));
++                mQ.addLast(e);
++        }
++        
+     }
+ 
+     /**
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/cmds/am/src/com/android/commands/am/Am.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/cmds/am/src/com/android/commands/am/Am.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/cmds/am/src/com/android/commands/am/Am.java	2014-04-06 13:45:05.036416361 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/cmds/am/src/com/android/commands/am/Am.java	2013-05-26 21:12:32.126286869 -0700
+@@ -33,7 +33,15 @@ import android.os.RemoteException;
+ import android.os.ServiceManager;
+ import android.util.AndroidException;
+ import android.view.IWindowManager;
+-
++import android.net.IConnectivityManager;
++import android.net.ConnectivityManager;
++import android.content.pm.IPackageManager;
++import android.content.pm.PackageManager;
++import android.net.NetworkInfo;
++import android.content.pm.ApplicationInfo;
++import android.app.ActivityThread;
++import android.appwidget.AppWidgetManager;
++import android.view.KeyEvent;
+ import java.io.BufferedReader;
+ import java.io.File;
+ import java.io.FileNotFoundException;
+@@ -43,6 +51,9 @@ import java.io.PrintStream;
+ import java.net.URISyntaxException;
+ import java.util.Iterator;
+ import java.util.Set;
++import java.util.Random;
++import java.util.List;
++import java.util.TimeZone;
+ 
+ public class Am {
+ 
+@@ -58,7 +69,7 @@ public class Am {
+     private static final String FATAL_ERROR_CODE = "Error type 1";
+     private static final String NO_SYSTEM_ERROR_CODE = "Error type 2";
+     private static final String NO_CLASS_ERROR_CODE = "Error type 3";
+-
++    private static final Random rand = new Random();
+     /**
+      * Command-line entry point.
+      *
+@@ -334,12 +345,84 @@ public class Am {
+ 
+     private void sendBroadcast() throws Exception {
+         Intent intent = makeIntent();
++        addExtraInfo(intent);
+         IntentReceiver receiver = new IntentReceiver();
+         System.out.println("Broadcasting: " + intent);
+         mAm.broadcastIntent(null, intent, null, receiver, 0, null, null, null, true, false);
+         receiver.waitForFinish();
+     }
+ 
++   private void addExtraInfo(Intent intent) {
++        try{
++                if(intent != null) {
++                        if(intent.getAction().equals("android.net.conn.CONNECTIVITY_CHANGE")) {
++                                //Here we need to modify intent to match the expected behavior
++                                IConnectivityManager cm = IConnectivityManager.Stub.asInterface(ServiceManager.getService("connectivity"));
++                                 NetworkInfo[] result = cm.getAllNetworkInfo();
++                                if(result != null && result.length > 0) {
++                                        //We pick random NetworkInfo and report that the status has changed
++                                        NetworkInfo target = result[rand.nextInt(result.length)];
++                                        intent.putExtra(ConnectivityManager.EXTRA_NETWORK_INFO, target);
++                                        if (target.isFailover()) {
++                                                intent.putExtra(ConnectivityManager.EXTRA_IS_FAILOVER, true);
++                                                target.setFailover(false);
++                                        }
++                                        if (target.getReason() != null) {
++                                                intent.putExtra(ConnectivityManager.EXTRA_REASON, target.getReason());
++                                        }
++                                        if (target.getExtraInfo() != null) {
++                                                intent.putExtra(ConnectivityManager.EXTRA_EXTRA_INFO,target.getExtraInfo());
++                                        }
++                                        // 0 is full bad, 100 is full good
++                                        intent.putExtra(ConnectivityManager.EXTRA_INET_CONDITION, rand.nextInt(101));
++                                }
++                        } else if(intent.getAction().equals("android.intent.action.MEDIA_MOUNTED")) {
++                                //This is just constant event where we always say that sdcard has mounted r/w
++                                intent.setData(Uri.fromFile(new File("/mnt/sdcard")));
++                                intent.putExtra("read-only",false);
++                        } else if(intent.getAction().contains("PACKAGE")) {
++                                PackageManager pm = (PackageManager)ActivityThread.getPackageManager();
++                                List<ApplicationInfo> installedApps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
++                                ApplicationInfo targetApp = null;
++                                boolean replacing = rand.nextInt(2) == 0 ? false:true;
++                                if(installedApps != null && installedApps.size() > 0) {
++                                        //Get a Random installed app
++                                        targetApp = installedApps.get(rand.nextInt(installedApps.size()));
++                                }
++                                if(targetApp != null) {
++                                        if(intent.getAction().equals("android.intent.action.PACKAGE_ADDED")){
++                                                intent.putExtra(Intent.EXTRA_UID,targetApp.uid);
++                                                intent.putExtra(Intent.EXTRA_REPLACING,replacing);
++                                        }
++                                        if(intent.getAction().equals("android.intent.action.PACKAGE_REMOVED")){
++                                                intent.putExtra(Intent.EXTRA_UID,targetApp.uid);
++                                                intent.putExtra(Intent.EXTRA_REPLACING,replacing);
++                                                replacing = rand.nextInt(2) == 0 ? false:true;
++                                                intent.putExtra(Intent.EXTRA_DATA_REMOVED,replacing);
++                                                
++                                        }
++                                        if(intent.getAction().equals("android.intent.action.PACKAGE_REPLACED")){
++                                                intent.putExtra(Intent.EXTRA_UID,targetApp.uid);
++                                        }
++                                }
++                        } else if(intent.getAction().equals("android.intent.action.TIMEZONE_CHANGED")){
++                                intent.putExtra("time-zone",TimeZone.getTimeZone("America/Los_Angeles").getID());
++                        } else if(intent.getAction().equals("android.appwidget.action.APPWIDGET_UPDATE")){
++                                int[] dummyAppWidgetIds = new int[rand.nextInt(10)+1];
++                                for(int i=0;i<dummyAppWidgetIds.length;i++) {
++                                        dummyAppWidgetIds[i] = rand.nextInt(100);
++                                }
++                                intent.putExtra(AppWidgetManager.ACTION_APPWIDGET_UPDATE,dummyAppWidgetIds);                                
++                        } else if(intent.getAction().equals("android.intent.action.MEDIA_BUTTON")) {
++			    intent.putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE));			    
++			} else if(intent.getAction().equals("android.intent.action.NEW_OUTGOING_CALL")) {
++			    intent.putExtra(Intent.EXTRA_PHONE_NUMBER, "6789077112");
++			}
++                }
++        } catch(Exception e) {
++        }
++   }
++
+     private void runInstrument() throws Exception {
+         String profileFile = null;
+         boolean wait = false;
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/app/ContextImpl.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/app/ContextImpl.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/app/ContextImpl.java	2014-04-06 13:45:05.176416369 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/app/ContextImpl.java	2013-05-26 21:05:10.490305441 -0700
+@@ -177,6 +177,7 @@ class ContextImpl extends Context {
+     private static LocationManager sLocationManager;
+     private static final HashMap<String, SharedPreferencesImpl> sSharedPrefs =
+             new HashMap<String, SharedPreferencesImpl>();
++    private static final HashMap<IntentFilter,List<BroadcastReceiver>> m3LocregisteredReceivers = new HashMap<IntentFilter, List<BroadcastReceiver>>();
+ 
+     private AudioManager mAudioManager;
+     /*package*/ LoadedApk mPackageInfo;
+@@ -209,6 +210,7 @@ class ContextImpl extends Context {
+     private DownloadManager mDownloadManager = null;
+     private NfcManager mNfcManager = null;
+ 
++    
+     private final Object mSync = new Object();
+ 
+     private File mDatabasesDir;
+@@ -788,9 +790,23 @@ class ContextImpl extends Context {
+                 scheduler, getOuterContext());
+     }
+ 
++    @Override
++    public  HashMap<IntentFilter,List<BroadcastReceiver>> m3getRegisteredReceivers() {
++       synchronized (sSync) {
++	Log.i(TAG, "[]Returning m3RegisteredReceivers..size:"+m3LocregisteredReceivers.size());
++       	return m3LocregisteredReceivers;
++       }
++    }
++
+     private Intent registerReceiverInternal(BroadcastReceiver receiver,
+             IntentFilter filter, String broadcastPermission,
+             Handler scheduler, Context context) {
++	String inApp = "NULLSYSTEM";
++      try{
++         inApp = this.getPackageName();
++     } catch(Exception e) {
++     }
++	Log.i(TAG+"YY", "From :"+ inApp + " from hashCode:" + this.hashCode() + " Called Register Receiver with receiver:"+ receiver.getClass().getName()+" and m3 is of size:"+m3_registeredReceivers.size());
+         IIntentReceiver rd = null;
+         if (receiver != null) {
+             if (mPackageInfo != null && context != null) {
+@@ -809,6 +825,16 @@ class ContextImpl extends Context {
+             }
+         }
+         try {
++             synchronized (sSync) {
++              File file=new File("/sdcard/"+inApp);
++               if(file.exists()) {
++			if(!m3LocregisteredReceivers.containsKey(filter)){
++			m3LocregisteredReceivers.put(filter,new ArrayList<BroadcastReceiver>());
++			}
++		       m3LocregisteredReceivers.get(filter).add(receiver);
++			Log.i(TAG, "[][]Added Receiver to m3RegisteredReceivers..size:"+m3LocregisteredReceivers.size());
++              }
++            }
+             return ActivityManagerNative.getDefault().registerReceiver(
+                     mMainThread.getApplicationThread(),
+                     rd, filter, broadcastPermission);
+@@ -1117,7 +1143,7 @@ class ContextImpl extends Context {
+             if (sLocationManager == null) {
+                 IBinder b = ServiceManager.getService(LOCATION_SERVICE);
+                 ILocationManager service = ILocationManager.Stub.asInterface(b);
+-                sLocationManager = new LocationManager(service);
++                sLocationManager = new LocationManager(this,service);
+             }
+         }
+         return sLocationManager;
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/app/Instrumentation.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/app/Instrumentation.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/app/Instrumentation.java	2014-04-06 13:45:05.176416369 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/app/Instrumentation.java	2013-05-26 21:05:07.094305584 -0700
+@@ -168,7 +168,13 @@ public class Instrumentation {
+             }
+         }
+     }
++
++    public void generateCoverageReportM3() {
++    }
+     
++    public void generateCoverageReport1() {
++          generateCoverageReportM3();
++    }
+     /**
+      * Terminate instrumentation of the application.  This will cause the
+      * application process to exit, removing this instrumentation from the next
+@@ -1058,6 +1064,7 @@ public class Instrumentation {
+     }
+     
+     public void callActivityOnDestroy(Activity activity) {
++      generateCoverageReportM3();
+       if (mWaitingActivities != null) {
+           synchronized (mSync) {
+               final int N = mWaitingActivities.size();
+@@ -1188,6 +1195,7 @@ public class Instrumentation {
+      * @param activity The activity being paused.
+      */
+     public void callActivityOnPause(Activity activity) {
++        generateCoverageReportM3();
+         activity.performPause();
+     }
+     
+@@ -1445,7 +1453,13 @@ public class Instrumentation {
+             if (mAutomaticPerformanceSnapshots) {
+                 startPerformanceSnapshot();
+             }
+-            onStart();
++            try{
++                onStart();
++            } catch(Exception e) {
++                Log.w("M3"+TAG,"Exception occured during app run");
++            }
++            Log.w("M3"+TAG,"Finished calling on Start");
++            generateCoverageReport1();
+         }
+     }
+     
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/content/Context.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/content/Context.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/content/Context.java	2014-04-06 13:45:05.256416374 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/content/Context.java	2013-05-26 21:04:12.086307898 -0700
+@@ -30,13 +30,15 @@ import android.os.Bundle;
+ import android.os.Handler;
+ import android.os.Looper;
+ import android.util.AttributeSet;
+-
++import android.util.Log;
+ import java.io.File;
+ import java.io.FileInputStream;
+ import java.io.FileNotFoundException;
+ import java.io.FileOutputStream;
+ import java.io.IOException;
+ import java.io.InputStream;
++import java.util.HashMap;
++import java.util.List;
+ 
+ /**
+  * Interface to global information about an application environment.  This is
+@@ -55,6 +57,8 @@ public abstract class Context {
+      * @see #MODE_WORLD_WRITEABLE
+      */
+     public static final int MODE_PRIVATE = 0x0000;
++
++    protected HashMap<IntentFilter,List<BroadcastReceiver>> m3_registeredReceivers = new HashMap<IntentFilter, List<BroadcastReceiver>>();
+     /**
+      * File creation mode: allow all other applications to have read access
+      * to the created file.
+@@ -223,7 +227,11 @@ public abstract class Context {
+         return getTheme().obtainStyledAttributes(attrs);
+     }
+ 
+-    /**
++     public HashMap<IntentFilter,List<BroadcastReceiver>> m3getRegisteredReceivers() {
++	return m3_registeredReceivers;
++     }
++ 
++   /**
+      * Retrieve styled attribute information in this Context's theme.  See
+      * {@link Resources.Theme#obtainStyledAttributes(int, int[])}
+      * for more information.
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/content/ContextWrapper.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/content/ContextWrapper.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/content/ContextWrapper.java	2014-04-06 13:45:05.256416374 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/content/ContextWrapper.java	2013-05-26 21:04:12.878307864 -0700
+@@ -15,7 +15,8 @@
+  */
+ 
+ package android.content;
+-
++import android.content.BroadcastReceiver;
++import android.content.IntentFilter;
+ import android.content.pm.ApplicationInfo;
+ import android.content.pm.PackageManager;
+ import android.content.res.AssetManager;
+@@ -28,6 +29,9 @@ import android.net.Uri;
+ import android.os.Bundle;
+ import android.os.Handler;
+ import android.os.Looper;
++import android.util.Log;
++import java.util.HashMap;
++import java.util.List;
+ 
+ import java.io.File;
+ import java.io.FileInputStream;
+@@ -252,6 +256,12 @@ public class ContextWrapper extends Cont
+     public void clearWallpaper() throws IOException {
+         mBase.clearWallpaper();
+     }
++	
++    @Override
++    public HashMap<IntentFilter,List<BroadcastReceiver>> m3getRegisteredReceivers() {
++	//Log.i("InContextWrapper", "Returning m3RegisteredReceivers..");
++        return mBase.m3getRegisteredReceivers();
++     }
+ 
+     @Override
+     public void startActivity(Intent intent) {
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/os/Debug.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/os/Debug.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/os/Debug.java	2014-04-06 13:45:05.408416375 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/os/Debug.java	2013-05-26 21:04:44.374306539 -0700
+@@ -478,7 +478,9 @@ href="{@docRoot}guide/developing/tools/t
+      * @hide
+      */
+     public static void startMethodTracingDdms(int bufferSize, int flags) {
+-        VMDebug.startMethodTracingDdms(bufferSize, flags);
++        String[] whiteList = new String[1];
++        whiteList[0] = "MACHIRY";
++        VMDebug.startMethodTracingDdms(whiteList,bufferSize, flags);
+     }
+ 
+     /**
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/os/StrictMode.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/os/StrictMode.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/os/StrictMode.java	2014-04-06 13:45:05.412416377 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/os/StrictMode.java	2013-05-26 21:04:45.954306473 -0700
+@@ -515,7 +515,8 @@ public final class StrictMode {
+      * @param policy the policy to put into place
+      */
+     public static void setThreadPolicy(final ThreadPolicy policy) {
+-        setThreadPolicyMask(policy.mask);
++        //M3:Ignore This else most of the apps might break.
++        //setThreadPolicyMask(policy.mask);
+     }
+ 
+     private static void setThreadPolicyMask(final int policyMask) {
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/view/inputmethod/InputMethodManager.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/view/inputmethod/InputMethodManager.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/view/inputmethod/InputMethodManager.java	2014-04-06 13:45:05.712416389 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/view/inputmethod/InputMethodManager.java	2013-05-26 21:04:22.802307447 -0700
+@@ -689,7 +689,8 @@ public final class InputMethodManager {
+      * 0 or have the {@link #SHOW_IMPLICIT} bit set.
+      */
+     public boolean showSoftInput(View view, int flags) {
+-        return showSoftInput(view, flags, null);
++        //return showSoftInput(view, flags, null);
++        return true;
+     }
+     
+     /**
+@@ -749,21 +750,23 @@ public final class InputMethodManager {
+                 return false;
+             }
+ 
+-            try {
++            /*try {
+                 return mService.showSoftInput(mClient, flags, resultReceiver);
++                //return true;
+             } catch (RemoteException e) {
+-            }
++            }*/
+             
+-            return false;
++            return true;
+         }
+     }
+     
+     /** @hide */
+     public void showSoftInputUnchecked(int flags, ResultReceiver resultReceiver) {
+-        try {
++        /*try {
+             mService.showSoftInput(mClient, flags, resultReceiver);
++            
+         } catch (RemoteException e) {
+-        }
++        }*/
+     }
+     
+     /**
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/view/MotionEvent.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/view/MotionEvent.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/view/MotionEvent.java	2014-04-06 13:45:05.672416387 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/view/MotionEvent.java	2013-05-26 21:04:25.542307332 -0700
+@@ -19,6 +19,7 @@ package android.view;
+ import android.os.Parcel;
+ import android.os.Parcelable;
+ import android.os.SystemClock;
++import android.util.Log;
+ 
+ /**
+  * Object used to report movement (mouse, pen, finger, trackball) events.  This
+@@ -677,10 +678,12 @@ public final class MotionEvent extends I
+      * @hide
+      */
+     public final void scale(float scale) {
++	//Log.i("MotionEvent", "Scaling..before x="+mXOffset+",y=%f"+mYOffset);
+         mXOffset *= scale;
+         mYOffset *= scale;
+         mXPrecision *= scale;
+         mYPrecision *= scale;
++	//Log.i("MotionEvent", "Scaling..at"+scale+" ..after x="+mXOffset+",y="+mYOffset);
+         
+         float[] history = mDataSamples;
+         final int length = mNumPointers * mNumSamples * NUM_SAMPLE_DATA;
+@@ -770,6 +773,7 @@ public final class MotionEvent extends I
+      * arbitrary pointer identifier).
+      */
+     public final float getX() {
++	//Log.i("MotionEvent","GetX called with co-ordinates="+mDataSamples[mLastDataSampleIndex + SAMPLE_X]+",offset="+mXOffset);
+         return mDataSamples[mLastDataSampleIndex + SAMPLE_X] + mXOffset;
+     }
+ 
+@@ -778,6 +782,7 @@ public final class MotionEvent extends I
+      * arbitrary pointer identifier).
+      */
+     public final float getY() {
++	//Log.i("MotionEvent","GetY called with co-ordinates="+mDataSamples[mLastDataSampleIndex + SAMPLE_Y]+",offset="+mYOffset);
+         return mDataSamples[mLastDataSampleIndex + SAMPLE_Y] + mYOffset;
+     }
+ 
+@@ -1571,6 +1576,7 @@ public final class MotionEvent extends I
+         ev.mEdgeFlags = in.readInt();
+         ev.mMetaState = in.readInt();
+         ev.mFlags = in.readInt();
++	//Log.i("MotionEvent","From Parcel, xoffset="+ev.mXOffset+",yoffset="+ev.mYOffset);
+         
+         final int[] pointerIdentifiers = ev.mPointerIdentifiers;
+         for (int i = 0; i < NP; i++) {
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/view/ViewGroup.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/view/ViewGroup.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/view/ViewGroup.java	2014-04-06 13:45:05.680416387 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/view/ViewGroup.java	2013-05-26 21:04:24.290307384 -0700
+@@ -832,7 +832,7 @@ public abstract class ViewGroup extends
+         final float scrolledXFloat = xf + mScrollX;
+         final float scrolledYFloat = yf + mScrollY;
+         final Rect frame = mTempRect;
+-
++	//Log.i("M3_DEBUG", "Event co-ordinates:x=" + xf+" y="+yf+" scx="+scrolledXFloat+" scy="+scrolledYFloat);
+         boolean disallowIntercept = (mGroupFlags & FLAG_DISALLOW_INTERCEPT) != 0;
+ 
+         if (action == MotionEvent.ACTION_DOWN) {
+@@ -857,6 +857,7 @@ public abstract class ViewGroup extends
+ 
+                 for (int i = count - 1; i >= 0; i--) {
+                     final View child = children[i];
++             	    //Log.i("A3T_DEBUG", "child=" + i + " class=" + child.getClass());
+                     if ((child.mViewFlags & VISIBILITY_MASK) == VISIBLE
+                             || child.getAnimation() != null) {
+                         child.getHitRect(frame);
+@@ -868,6 +869,18 @@ public abstract class ViewGroup extends
+                             child.mPrivateFlags &= ~CANCEL_NEXT_UP_EVENT;
+                             if (child.dispatchTouchEvent(ev))  {
+                                 // Event handled, we have a target now.
++				StringBuilder builder = new StringBuilder();
++				builder.append("dipatched to");
++				builder.append(" id = " + child.getId());
++				builder.append(" class = " + child.getClass().getName());
++				builder.append("\nleft = " + frame.left);
++				builder.append(" right = " + frame.right);
++				builder.append(" top = " + frame.top);
++				builder.append(" bottom = " + frame.bottom);
++				builder.append("\nx = " + scrolledXInt);
++				builder.append(" y = " + scrolledYInt);
++				builder.append("\n");
++				//Log.i("A3T_DEBUG", builder.toString());
+                                 mMotionTarget = child;
+                                 return true;
+                             }
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/view/View.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/view/View.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/view/View.java	2014-04-06 13:45:05.680416387 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/view/View.java	2013-05-26 21:04:19.110307603 -0700
+@@ -18,7 +18,9 @@ package android.view;
+ 
+ import com.android.internal.R;
+ import com.android.internal.view.menu.MenuBuilder;
+-
++import android.content.BroadcastReceiver;
++import android.content.Intent;
++import android.content.IntentFilter;
+ import android.content.Context;
+ import android.content.res.Configuration;
+ import android.content.res.Resources;
+@@ -55,6 +57,7 @@ import android.util.Poolable;
+ import android.util.PoolableManager;
+ import android.util.Pools;
+ import android.util.SparseArray;
++import android.util.StringBuilderPrinter;
+ import android.view.ContextMenu.ContextMenuInfo;
+ import android.view.accessibility.AccessibilityEvent;
+ import android.view.accessibility.AccessibilityEventSource;
+@@ -70,8 +73,11 @@ import java.lang.ref.SoftReference;
+ import java.lang.reflect.InvocationTargetException;
+ import java.lang.reflect.Method;
+ import java.util.ArrayList;
++import java.util.List;
+ import java.util.Arrays;
+ import java.util.WeakHashMap;
++import java.util.HashMap;
++import android.webkit.WebView;
+ 
+ /**
+  * <p>
+@@ -1584,6 +1590,10 @@ public class View implements Drawable.Ca
+      */
+     private int mOverScrollMode;
+ 
++
++    private int m3XFinalCheck = 0;
++    private int m3YFinalCheck = 0;
++
+     /**
+      * The parent this view is attached to.
+      * {@hide}
+@@ -2489,6 +2499,103 @@ public class View implements Drawable.Ca
+         return false;
+     }
+ 
++   @ViewDebug.ExportedProperty(category = "M3")
++   public boolean hasOnClickRegistered() {
++
++        try{
++        if(mOnClickListener == null && mTouchDelegate == null && mOnTouchListener == null) {
++                //Here we check if the View has overridden onTouchEvent which
++                //could be used to generate touch events
++                
++                String overriddenClass = this.getClass().getMethod("onTouchEvent",MotionEvent.class).getDeclaringClass().toString();
++                //Log.i("M3OnClickClass", overriddenClass);
++                if(overriddenClass != null && !(overriddenClass.equals("class android.view.View") || overriddenClass.contains("class android.widget"))) {
++                        return true;
++                }
++
++                overriddenClass = this.getClass().getMethod("performClick").getDeclaringClass().toString();
++                if(overriddenClass != null && !(overriddenClass.equals("class android.view.View") || overriddenClass.contains("class android.widget"))) {
++                        return true;
++                }
++                return false;
++        }
++	return true;
++        } catch(Exception e) {
++        }
++         
++        //We might have messed up with Reflection, but its ok.        
++        return false;
++   }
++
++   @ViewDebug.ExportedProperty(category = "M3")
++   public boolean hasOnLongClickRegistered() {
++	if(mOnCreateContextMenuListener == null && mOnLongClickListener == null) {
++                 try{                        
++                        String overriddenClass = this.getClass().getMethod("onTouchEvent",MotionEvent.class).getDeclaringClass().toString();
++                        if(overriddenClass != null && !(overriddenClass.equals("class android.view.View") || overriddenClass.contains("class android.widget"))) {
++                                return true;
++                        }
++                } catch(Exception e) {
++                }
++                return false;
++        }
++        return true;
++   }
++
++   @ViewDebug.ExportedProperty(category = "M3")
++   public boolean canAcceptSlideInput() {
++        if(mOnTouchListener == null) {
++               try{
++
++	             String overriddenClass = this.getClass().getMethod("onTouchEvent",MotionEvent.class).getDeclaringClass().toString();
++                     if(overriddenClass != null && !(overriddenClass.equals("class android.view.View") || overriddenClass.contains("class android.widget"))) {
++                             return true;
++                     }
++                } catch(Exception e) {
++                }
++                return false;
++        }
++        return true;
++   }
++
++   @ViewDebug.ExportedProperty(category = "M3")
++   public String m3getAppScale() {
++	return "" + (mAttachInfo != null ? mAttachInfo.mApplicationScale : 1.0f);
++    }
++
++   @ViewDebug.ExportedProperty(category = "M3")
++   public String getCallBackClass(){
++	if(mOnClickListener != null) {
++	      return mOnClickListener.getClass().getName();
++       }
++       return "NULL";
++   }
++
++   @ViewDebug.ExportedProperty(category = "M3")
++   public String getM3RegisteredReceivers() {
++	/*Log.i("view", "Current Package Name:"+getContext().getPackageName()+"  hashCode:"+getContext().hashCode()+"...Parent Package Name:"+getContext().getApplicationContext().getPackageName()+"...hashCode:"+getContext().getApplicationContext().hashCode());*/
++     HashMap<IntentFilter,List<BroadcastReceiver>> brev = getContext().getApplicationContext().m3getRegisteredReceivers();
++	//Log.i("view", "Called getM3...");
++	StringBuilder retString = new StringBuilder();
++        if(brev != null){
++	//Log.i("view", "Returned Non NULL YAY!!!...");
++	StringBuilderPrinter dumpPrinter = new StringBuilderPrinter(retString);
++	for(IntentFilter f:brev.keySet()){				
++		retString.append("StartIntentFilterDump::::");
++		f.dump(dumpPrinter,"M3_");
++	retString.append("::::EndIntentFilterDump");
++	retString.append("StartBroadCastReceiverDump::::");
++    for(BroadcastReceiver r:brev.get(f)){
++    	retString.append(r.getClass().getName()+":");
++    }
++    retString.append("::::EndBroadCastReceiverDump");
++	}
++       } else{
++		//Log.i("view", "Returned NULL gaya tu!!!...");
++       }
++	return retString.toString();
++   }
++
+     /**
+      * Call this view's OnLongClickListener, if it is defined. Invokes the context menu if the
+      * OnLongClickListener did not consume the event.
+@@ -4310,6 +4417,27 @@ public class View implements Drawable.Ca
+         return false;
+     }
+ 
++    @ViewDebug.ExportedProperty(category = "M3")
++    public boolean m3IsTextEditor() {
++        if(!onCheckIsTextEditor() && mOnKeyListener == null) {
++               try{
++
++	             String overriddenClass = this.getClass().getMethod("onKeyDown",int.class,KeyEvent.class).getDeclaringClass().toString();
++                     if(overriddenClass != null && !(overriddenClass.equals("class android.view.View") || overriddenClass.contains("class android.widget"))) {
++                             return true;
++                     }
++        
++                     overriddenClass = this.getClass().getMethod("onKeyUp",int.class,KeyEvent.class).getDeclaringClass().toString();
++                     if(overriddenClass != null && !(overriddenClass.equals("class android.view.View") || overriddenClass.contains("class android.widget"))) {
++                             return true;
++                     }
++                } catch(Exception e) {
++                }
++                return false;
++        }
++        return true;
++    }
++
+     /**
+      * Create a new InputConnection for an InputMethod to interact
+      * with the view.  The default implementation returns null, since it doesn't
+@@ -6829,6 +6957,8 @@ public class View implements Drawable.Ca
+         if (ViewDebug.TRACE_HIERARCHY) {
+             ViewDebug.trace(this, ViewDebug.HierarchyTraceType.DRAW);
+         }
++        m3XFinalCheck = canvas.getClipBounds().left;
++        m3YFinalCheck = canvas.getClipBounds().top;
+ 
+         final int privateFlags = mPrivateFlags;
+         final boolean dirtyOpaque = (privateFlags & DIRTY_MASK) == DIRTY_OPAQUE &&
+@@ -7835,6 +7965,26 @@ public class View implements Drawable.Ca
+         }
+     }
+ 
++
++   @ViewDebug.ExportedProperty(category = "M3")
++   public String getXM3(){
++      int[] loc = new int[2];
++      getLocationOnScreen(loc);
++        return Integer.toString(loc[0]);
++   }
++
++   @ViewDebug.ExportedProperty(category = "M3")
++   public String getYM3(){
++	 int[] loc = new int[2];
++      getLocationOnScreen(loc);
++         return Integer.toString(loc[1]);
++   }
++
++   @ViewDebug.ExportedProperty(category = "M3")
++   public boolean IsWebView(){
++        return (this instanceof WebView);
++   }
++
+     /**
+      * <p>Computes the coordinates of this view in its window. The argument
+      * must be an array of two integers. After the method returns, the array
+@@ -7973,6 +8123,11 @@ public class View implements Drawable.Ca
+         return mID;
+     }
+ 
++    @ViewDebug.ExportedProperty(category = "M3")
++    public int m3ID() {
++        return mID;
++    }
++
+     /**
+      * Returns this view's tag.
+      *
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/widget/AdapterView.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/widget/AdapterView.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/widget/AdapterView.java	2014-04-06 13:45:05.724416390 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/widget/AdapterView.java	2013-05-26 21:04:51.654306234 -0700
+@@ -269,6 +269,27 @@ public abstract class AdapterView<T exte
+         return mOnItemClickListener;
+     }
+ 
++    @ViewDebug.ExportedProperty(category = "M3")
++    public final String m3ListItemClickListner() {
++        if(mOnItemClickListener != null) {
++                return mOnItemClickListener.getClass().getName();
++        }
++        if(mOnItemSelectedListener != null) {
++                return mOnItemSelectedListener.getClass().getName();
++        }
++        return "NULL";
++    }
++
++   @ViewDebug.ExportedProperty(category = "M3")
++    public final String m3ListItemLongClickListner() {
++        if(mOnItemLongClickListener != null) {
++                return mOnItemLongClickListener.getClass().getName();
++        }
++        return "NULL";
++    }
++
++        
++
+     /**
+      * Call the OnItemClickListener, if it is defined.
+      *
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/widget/TextView.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/widget/TextView.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/core/java/android/widget/TextView.java	2014-04-06 13:45:05.996416398 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/core/java/android/widget/TextView.java	2013-05-26 21:04:55.774306060 -0700
+@@ -1040,6 +1040,11 @@ public class TextView extends View imple
+         return mText;
+     }
+ 
++   @ViewDebug.ExportedProperty(category = "M3")
++   public CharSequence m3getText() {
++        return mText;
++    }
++
+     /**
+      * Returns the length, in characters, of the text managed by this TextView
+      */
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/graphics/java/android/graphics/Rect.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/graphics/java/android/graphics/Rect.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/graphics/java/android/graphics/Rect.java	2014-04-06 13:45:09.920416564 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/graphics/java/android/graphics/Rect.java	2013-05-26 21:07:28.574299634 -0700
+@@ -18,7 +18,7 @@ package android.graphics;
+ 
+ import android.os.Parcel;
+ import android.os.Parcelable;
+-
++import android.util.Log;
+ import java.io.PrintWriter;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
+@@ -308,8 +308,10 @@ public final class Rect implements Parce
+      *              means left <= x < right and top <= y < bottom
+      */
+     public boolean contains(int x, int y) {
+-        return left < right && top < bottom  // check for empty first
++        boolean b = left < right && top < bottom  // check for empty first
+                && x >= left && x < right && y >= top && y < bottom;
++	//Log.i("CONTAINS", "x=" + x + ",y=" + y + ",r=" + right + ",l=" + left + ",b=" + bottom + ",t=" + top + ",result=" + b);
++	return b;
+     }
+ 
+     /**
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/libs/ui/FramebufferNativeWindow.cpp /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/libs/ui/FramebufferNativeWindow.cpp
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/libs/ui/FramebufferNativeWindow.cpp	2014-04-06 13:45:10.328416580 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/libs/ui/FramebufferNativeWindow.cpp	2013-05-26 21:16:50.874275987 -0700
+@@ -261,12 +261,15 @@ int FramebufferNativeWindow::query(ANati
+     framebuffer_device_t* fb = self->fbDev;
+     switch (what) {
+         case NATIVE_WINDOW_WIDTH:
++	    LOGD("Returning Width=%d",fb->width);
+             *value = fb->width;
+             return NO_ERROR;
+         case NATIVE_WINDOW_HEIGHT:
++	     LOGD("Returning Height=%d",fb->height);
+             *value = fb->height;
+             return NO_ERROR;
+         case NATIVE_WINDOW_FORMAT:
++	     LOGD("Returning Format=%d",fb->format);
+             *value = fb->format;
+             return NO_ERROR;
+     }
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/libs/ui/Input.cpp /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/libs/ui/Input.cpp
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/libs/ui/Input.cpp	2014-04-06 13:45:10.328416580 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/libs/ui/Input.cpp	2013-05-26 21:16:52.382275924 -0700
+@@ -168,6 +168,7 @@ void MotionEvent::addSample(
+ void MotionEvent::offsetLocation(float xOffset, float yOffset) {
+     mXOffset += xOffset;
+     mYOffset += yOffset;
++   // LOGD("Added offset Location original,x=%f,y=%f..modified,x=%f,y=%f",mXOffset-xOffset,mYOffset-yOffset,mXOffset,mYOffset);
+ }
+ 
+ // class InputDeviceInfo
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/libs/ui/InputDispatcher.cpp /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/libs/ui/InputDispatcher.cpp
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/libs/ui/InputDispatcher.cpp	2014-04-06 13:45:10.328416580 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/libs/ui/InputDispatcher.cpp	2013-05-26 21:16:51.234275972 -0700
+@@ -704,15 +704,13 @@ bool InputDispatcher::dispatchKeyLocked(
+ }
+ 
+ void InputDispatcher::logOutboundKeyDetailsLocked(const char* prefix, const KeyEntry* entry) {
+-#if DEBUG_OUTBOUND_EVENT_DETAILS
+-    LOGD("%seventTime=%lld, deviceId=0x%x, source=0x%x, policyFlags=0x%x, "
++    /*LOGD("%seventTime=%lld, deviceId=0x%x, source=0x%x, policyFlags=0x%x, "
+             "action=0x%x, flags=0x%x, keyCode=0x%x, scanCode=0x%x, metaState=0x%x, "
+             "repeatCount=%d, downTime=%lld",
+             prefix,
+             entry->eventTime, entry->deviceId, entry->source, entry->policyFlags,
+             entry->action, entry->flags, entry->keyCode, entry->scanCode, entry->metaState,
+-            entry->repeatCount, entry->downTime);
+-#endif
++            entry->repeatCount, entry->downTime);*/
+ }
+ 
+ bool InputDispatcher::dispatchMotionLocked(
+@@ -805,11 +803,9 @@ void InputDispatcher::logOutboundMotionD
+ 
+ void InputDispatcher::dispatchEventToCurrentInputTargetsLocked(nsecs_t currentTime,
+         EventEntry* eventEntry, bool resumeWithAppendedMotionSample) {
+-#if DEBUG_DISPATCH_CYCLE
+-    LOGD("dispatchEventToCurrentInputTargets - "
++    /*LOGD("dispatchEventToCurrentInputTargets - "
+             "resumeWithAppendedMotionSample=%s",
+-            toString(resumeWithAppendedMotionSample));
+-#endif
++            toString(resumeWithAppendedMotionSample));*/
+ 
+     assert(eventEntry->dispatchInProgress); // should already have been set to true
+ 
+@@ -824,11 +820,10 @@ void InputDispatcher::dispatchEventToCur
+             prepareDispatchCycleLocked(currentTime, connection, eventEntry, & inputTarget,
+                     resumeWithAppendedMotionSample);
+         } else {
+-#if DEBUG_FOCUS
+             LOGD("Dropping event delivery to target with channel '%s' because it "
+                     "is no longer registered with the input dispatcher.",
+                     inputTarget.inputChannel->getName().string());
+-#endif
++
+         }
+     }
+ }
+@@ -848,9 +843,7 @@ int32_t InputDispatcher::handleTargetsNo
+         nsecs_t* nextWakeupTime) {
+     if (application == NULL && window == NULL) {
+         if (mInputTargetWaitCause != INPUT_TARGET_WAIT_CAUSE_SYSTEM_NOT_READY) {
+-#if DEBUG_FOCUS
+-            LOGD("Waiting for system to become ready for input.");
+-#endif
++            //LOGD("Waiting for system to become ready for input.");
+             mInputTargetWaitCause = INPUT_TARGET_WAIT_CAUSE_SYSTEM_NOT_READY;
+             mInputTargetWaitStartTime = currentTime;
+             mInputTargetWaitTimeoutTime = LONG_LONG_MAX;
+@@ -858,10 +851,8 @@ int32_t InputDispatcher::handleTargetsNo
+         }
+     } else {
+         if (mInputTargetWaitCause != INPUT_TARGET_WAIT_CAUSE_APPLICATION_NOT_READY) {
+-#if DEBUG_FOCUS
+-            LOGD("Waiting for application to become ready for input: %s",
+-                    getApplicationWindowLabelLocked(application, window).string());
+-#endif
++            /*LOGD("Waiting for application to become ready for input: %s",
++                    getApplicationWindowLabelLocked(application, window).string());*/
+             nsecs_t timeout = window ? window->dispatchingTimeout :
+                 application ? application->dispatchingTimeout : DEFAULT_INPUT_DISPATCHING_TIMEOUT;
+ 
+@@ -944,17 +935,16 @@ int32_t InputDispatcher::findFocusedWind
+     // then drop the event.
+     if (! mFocusedWindow) {
+         if (mFocusedApplication) {
+-#if DEBUG_FOCUS
+-            LOGD("Waiting because there is no focused window but there is a "
++            /*LOGD("Waiting because there is no focused window but there is a "
+                     "focused application that may eventually add a window: %s.",
+-                    getApplicationWindowLabelLocked(mFocusedApplication, NULL).string());
+-#endif
++                    getApplicationWindowLabelLocked(mFocusedApplication, NULL).string());*/
++
+             injectionResult = handleTargetsNotReadyLocked(currentTime, entry,
+                     mFocusedApplication, NULL, nextWakeupTime);
+             goto Unresponsive;
+         }
+ 
+-        LOGI("Dropping event because there is no focused window or focused application.");
++        //LOGI("Dropping event because there is no focused window or focused application.");
+         injectionResult = INPUT_EVENT_INJECTION_FAILED;
+         goto Failed;
+     }
+@@ -967,9 +957,8 @@ int32_t InputDispatcher::findFocusedWind
+ 
+     // If the currently focused window is paused then keep waiting.
+     if (mFocusedWindow->paused) {
+-#if DEBUG_FOCUS
+-        LOGD("Waiting because focused window is paused.");
+-#endif
++        //LOGD("Waiting because focused window is paused.");
++
+         injectionResult = handleTargetsNotReadyLocked(currentTime, entry,
+                 mFocusedApplication, mFocusedWindow, nextWakeupTime);
+         goto Unresponsive;
+@@ -995,11 +984,10 @@ Unresponsive:
+     nsecs_t timeSpentWaitingForApplication = getTimeSpentWaitingForApplicationLocked(currentTime);
+     updateDispatchStatisticsLocked(currentTime, entry,
+             injectionResult, timeSpentWaitingForApplication);
+-#if DEBUG_FOCUS
+-    LOGD("findFocusedWindow finished: injectionResult=%d, "
++    /*LOGD("findFocusedWindow finished: injectionResult=%d, "
+             "timeSpendWaitingForApplication=%0.1fms",
+-            injectionResult, timeSpentWaitingForApplication / 1000000.0);
+-#endif
++            injectionResult, timeSpentWaitingForApplication / 1000000.0);*/
++
+     return injectionResult;
+ }
+ 
+@@ -1064,7 +1052,7 @@ int32_t InputDispatcher::findTouchedWind
+         int32_t y = int32_t(entry->firstSample.pointerCoords[pointerIndex].y);
+         const InputWindow* newTouchedWindow = NULL;
+         const InputWindow* topErrorWindow = NULL;
+-
++	 //LOGD("M3_FINAL COORDINATES:x=%d,y=%d",x,y);
+         // Traverse windows from front to back to find touched window and outside targets.
+         size_t numWindows = mWindows.size();
+         for (size_t i = 0; i < numWindows; i++) {
+@@ -1105,9 +1093,8 @@ int32_t InputDispatcher::findTouchedWind
+         // it is invisible) then wait for it.  Any other focused window may in
+         // fact be in ANR state.
+         if (topErrorWindow && newTouchedWindow != topErrorWindow) {
+-#if DEBUG_FOCUS
+-            LOGD("Waiting because system error window is pending.");
+-#endif
++            //LOGD("Waiting because system error window is pending.");
++
+             injectionResult = handleTargetsNotReadyLocked(currentTime, entry,
+                     NULL, NULL, nextWakeupTime);
+             injectionPermission = INJECTION_PERMISSION_UNKNOWN;
+@@ -1129,17 +1116,15 @@ int32_t InputDispatcher::findTouchedWind
+         // If we did not find a touched window then fail.
+         if (! newTouchedWindow) {
+             if (mFocusedApplication) {
+-#if DEBUG_FOCUS
+-                LOGD("Waiting because there is no touched window but there is a "
++                /*LOGD("Waiting because there is no touched window but there is a "
+                         "focused application that may eventually add a new window: %s.",
+-                        getApplicationWindowLabelLocked(mFocusedApplication, NULL).string());
+-#endif
++                        getApplicationWindowLabelLocked(mFocusedApplication, NULL).string());*/
+                 injectionResult = handleTargetsNotReadyLocked(currentTime, entry,
+                         mFocusedApplication, NULL, nextWakeupTime);
+                 goto Unresponsive;
+             }
+ 
+-            LOGI("Dropping event because there is no touched window or focused application.");
++            //LOGI("Dropping event because there is no touched window or focused application.");
+             injectionResult = INPUT_EVENT_INJECTION_FAILED;
+             goto Failed;
+         }
+@@ -1165,7 +1150,7 @@ int32_t InputDispatcher::findTouchedWind
+ 
+         // If the pointer is not currently down, then ignore the event.
+         if (! mTempTouchState.down) {
+-            LOGI("Dropping event because the pointer is not down.");
++            //LOGI("Dropping event because the pointer is not down.");
+             injectionResult = INPUT_EVENT_INJECTION_FAILED;
+             goto Failed;
+         }
+@@ -1204,9 +1189,7 @@ int32_t InputDispatcher::findTouchedWind
+         if (touchedWindow.targetFlags & InputTarget::FLAG_FOREGROUND) {
+             // If the touched window is paused then keep waiting.
+             if (touchedWindow.window->paused) {
+-#if DEBUG_INPUT_DISPATCHER_POLICY
+-                LOGD("Waiting because touched window is paused.");
+-#endif
++                //LOGD("Waiting because touched window is paused.");
+                 injectionResult = handleTargetsNotReadyLocked(currentTime, entry,
+                         NULL, touchedWindow.window, nextWakeupTime);
+                 goto Unresponsive;
+@@ -1214,9 +1197,7 @@ int32_t InputDispatcher::findTouchedWind
+ 
+             // If the touched window is still working on previous events then keep waiting.
+             if (! isWindowFinishedWithPreviousInputLocked(touchedWindow.window)) {
+-#if DEBUG_FOCUS
+-                LOGD("Waiting because touched window still processing previous input.");
+-#endif
++                //LOGD("Waiting because touched window still processing previous input.");
+                 injectionResult = handleTargetsNotReadyLocked(currentTime, entry,
+                         NULL, touchedWindow.window, nextWakeupTime);
+                 goto Unresponsive;
+@@ -1310,11 +1291,10 @@ Unresponsive:
+     nsecs_t timeSpentWaitingForApplication = getTimeSpentWaitingForApplicationLocked(currentTime);
+     updateDispatchStatisticsLocked(currentTime, entry,
+             injectionResult, timeSpentWaitingForApplication);
+-#if DEBUG_FOCUS
+-    LOGD("findTouchedWindow finished: injectionResult=%d, injectionPermission=%d, "
++    /*LOGD("findTouchedWindow finished: injectionResult=%d, injectionPermission=%d, "
+             "timeSpentWaitingForApplication=%0.1fms",
+-            injectionResult, injectionPermission, timeSpentWaitingForApplication / 1000000.0);
+-#endif
++            injectionResult, injectionPermission, timeSpentWaitingForApplication / 1000000.0);*/
++
+     return injectionResult;
+ }
+ 
+@@ -1327,6 +1307,7 @@ void InputDispatcher::addWindowTargetLoc
+     target.flags = targetFlags;
+     target.xOffset = - window->frameLeft;
+     target.yOffset = - window->frameTop;
++	//LOGD("M3_DEBUG: frameLeft=%f,framwRight=%f",window->frameLeft,window->frameTop);
+     target.pointerIds = pointerIds;
+ }
+ 
+@@ -1451,16 +1432,11 @@ void InputDispatcher::pokeUserActivityLo
+ void InputDispatcher::prepareDispatchCycleLocked(nsecs_t currentTime,
+         const sp<Connection>& connection, EventEntry* eventEntry, const InputTarget* inputTarget,
+         bool resumeWithAppendedMotionSample) {
+-#if DEBUG_DISPATCH_CYCLE
+-    LOGD("channel '%s' ~ prepareDispatchCycle - flags=%d, "
+-            "xOffset=%f, yOffset=%f, "
+-            "windowType=%d, pointerIds=0x%x, "
+-            "resumeWithAppendedMotionSample=%s",
++    /*LOGD("channel '%s' ~ prepareDispatchCycle - flags=%d, xOffset=%f, yOffset=%f, pointerIds=0x%x, resumeWithAppendedMotionSample=%s",
+             connection->getInputChannelName(), inputTarget->flags,
+             inputTarget->xOffset, inputTarget->yOffset,
+-            inputTarget->windowType, inputTarget->pointerIds.value,
+-            toString(resumeWithAppendedMotionSample));
+-#endif
++            inputTarget->pointerIds.value,
++            toString(resumeWithAppendedMotionSample));*/
+ 
+     // Make sure we are never called for streaming when splitting across multiple windows.
+     bool isSplit = inputTarget->flags & InputTarget::FLAG_SPLIT;
+@@ -1469,10 +1445,7 @@ void InputDispatcher::prepareDispatchCyc
+     // Skip this event if the connection status is not normal.
+     // We don't want to enqueue additional outbound events if the connection is broken.
+     if (connection->status != Connection::STATUS_NORMAL) {
+-#if DEBUG_DISPATCH_CYCLE
+-        LOGD("channel '%s' ~ Dropping event because the channel status is %s",
+-                connection->getInputChannelName(), connection->getStatusLabel());
+-#endif
++        //LOGD("channel '%s' ~ Dropping event because the channel status is %s",connection->getInputChannelName(), connection->getStatusLabel());
+         return;
+     }
+ 
+@@ -1484,11 +1457,11 @@ void InputDispatcher::prepareDispatchCyc
+         if (inputTarget->pointerIds.count() != originalMotionEntry->pointerCount) {
+             MotionEntry* splitMotionEntry = splitMotionEvent(
+                     originalMotionEntry, inputTarget->pointerIds);
+-#if DEBUG_FOCUS
+-            LOGD("channel '%s' ~ Split motion event.",
+-                    connection->getInputChannelName());
++
++            /*LOGD("channel '%s' ~ Split motion event.",
++                    connection->getInputChannelName());*/
+             logOutboundMotionDetailsLocked("  ", splitMotionEntry);
+-#endif
++
+             eventEntry = splitMotionEntry;
+         }
+     }
+@@ -1538,15 +1511,13 @@ void InputDispatcher::prepareDispatchCyc
+             MotionSample* appendedMotionSample = motionEntry->lastSample;
+             status_t status = connection->inputPublisher.appendMotionSample(
+                     appendedMotionSample->eventTime, appendedMotionSample->pointerCoords);
++		//LOGD("Adding event to the chanel co-ordinates, x= %d,y=%d",appendedMotionSample->pointerCoords[0].x,appendedMotionSample->pointerCoords[0].y);
+             if (status == OK) {
+-#if DEBUG_BATCHING
+-                LOGD("channel '%s' ~ Successfully streamed new motion sample.",
+-                        connection->getInputChannelName());
+-#endif
++                /*LOGD("channel '%s' ~ Successfully streamed new motion sample.",
++                        connection->getInputChannelName());*/
+                 return;
+             }
+ 
+-#if DEBUG_BATCHING
+             if (status == NO_MEMORY) {
+                 LOGD("channel '%s' ~ Could not append motion sample to currently "
+                         "dispatched move event because the shared memory buffer is full.  "
+@@ -1563,7 +1534,6 @@ void InputDispatcher::prepareDispatchCyc
+                         "(Waiting for next dispatch cycle to start.)",
+                         connection->getInputChannelName(), status);
+             }
+-#endif
+             // Failed to stream.  Start a new tail of pending motion samples to dispatch
+             // in the next cycle.
+             motionEventDispatchEntry->tailMotionSample = appendedMotionSample;
+@@ -1575,6 +1545,7 @@ void InputDispatcher::prepareDispatchCyc
+     // Enqueue a new dispatch entry onto the outbound queue for this connection.
+     DispatchEntry* dispatchEntry = mAllocator.obtainDispatchEntry(eventEntry, // increments ref
+             inputTarget->flags, inputTarget->xOffset, inputTarget->yOffset);
++    //LOGD("Got DispatchEntry with x=%f,y=%f",dispatchEntry->xOffset,dispatchEntry->yOffset);
+     if (dispatchEntry->hasForegroundTarget()) {
+         incrementPendingForegroundDispatchesLocked(eventEntry);
+     }
+@@ -1584,11 +1555,9 @@ void InputDispatcher::prepareDispatchCyc
+     // still be in the outbound queue for this connection).  We set the head motion sample
+     // to the list starting with the newly appended motion sample.
+     if (resumeWithAppendedMotionSample) {
+-#if DEBUG_BATCHING
+-        LOGD("channel '%s' ~ Preparing a new dispatch cycle for additional motion samples "
++        /*LOGD("channel '%s' ~ Preparing a new dispatch cycle for additional motion samples "
+                 "that cannot be streamed because the motion event has already been consumed.",
+-                connection->getInputChannelName());
+-#endif
++                connection->getInputChannelName());*/
+         MotionSample* appendedMotionSample = static_cast<MotionEntry*>(eventEntry)->lastSample;
+         dispatchEntry->headMotionSample = appendedMotionSample;
+     }
+@@ -1605,10 +1574,8 @@ void InputDispatcher::prepareDispatchCyc
+ 
+ void InputDispatcher::startDispatchCycleLocked(nsecs_t currentTime,
+         const sp<Connection>& connection) {
+-#if DEBUG_DISPATCH_CYCLE
+-    LOGD("channel '%s' ~ startDispatchCycle",
+-            connection->getInputChannelName());
+-#endif
++    /*LOGD("channel '%s' ~ startDispatchCycle",
++            connection->getInputChannelName());*/
+ 
+     assert(connection->status == Connection::STATUS_NORMAL);
+     assert(! connection->outboundQueue.isEmpty());
+@@ -1702,6 +1669,8 @@ void InputDispatcher::startDispatchCycle
+             yOffset = 0.0f;
+         }
+ 
++	
++
+         // Publish the motion event and the first motion sample.
+         status = connection->inputPublisher.publishMotionEvent(motionEntry->deviceId,
+                 motionEntry->source, action, flags, motionEntry->edgeFlags, motionEntry->metaState,
+@@ -1710,6 +1679,7 @@ void InputDispatcher::startDispatchCycle
+                 motionEntry->downTime, firstMotionSample->eventTime,
+                 motionEntry->pointerCount, motionEntry->pointerIds,
+                 firstMotionSample->pointerCoords);
++	/*LOGD("Published the motion event with offset:x=%f,y=%f with chords: x=%f,y=%f x1=%f,y1=%f",xOffset,yOffset,firstMotionSample->pointerCoords[0].x,firstMotionSample->pointerCoords[0].y,firstMotionSample->pointerCoords[1].x,firstMotionSample->pointerCoords[1].y);*/
+ 
+         if (status) {
+             LOGE("channel '%s' ~ Could not publish motion event, "
+@@ -1724,11 +1694,9 @@ void InputDispatcher::startDispatchCycle
+             status = connection->inputPublisher.appendMotionSample(
+                     nextMotionSample->eventTime, nextMotionSample->pointerCoords);
+             if (status == NO_MEMORY) {
+-#if DEBUG_DISPATCH_CYCLE
+                     LOGD("channel '%s' ~ Shared memory buffer full.  Some motion samples will "
+                             "be sent in the next dispatch cycle.",
+                             connection->getInputChannelName());
+-#endif
+                 break;
+             }
+             if (status != OK) {
+@@ -2119,23 +2087,21 @@ void InputDispatcher::notifyMotion(nsecs
+         uint32_t policyFlags, int32_t action, int32_t flags, int32_t metaState, int32_t edgeFlags,
+         uint32_t pointerCount, const int32_t* pointerIds, const PointerCoords* pointerCoords,
+         float xPrecision, float yPrecision, nsecs_t downTime) {
+-#if DEBUG_INBOUND_EVENT_DETAILS
+-    LOGD("notifyMotion - eventTime=%lld, deviceId=0x%x, source=0x%x, policyFlags=0x%x, "
++   /* LOGD("notifyMotion - eventTime=%lld, deviceId=0x%x, source=0x%x, policyFlags=0x%x, "
+             "action=0x%x, flags=0x%x, metaState=0x%x, edgeFlags=0x%x, "
+             "xPrecision=%f, yPrecision=%f, downTime=%lld",
+             eventTime, deviceId, source, policyFlags, action, flags, metaState, edgeFlags,
+-            xPrecision, yPrecision, downTime);
++            xPrecision, yPrecision, downTime);*/
+     for (uint32_t i = 0; i < pointerCount; i++) {
+-        LOGD("  Pointer %d: id=%d, x=%f, y=%f, pressure=%f, size=%f, "
++        /*LOGD("  Pointer %d: id=%d, x=%f, y=%f, pressure=%f, size=%f, "
+                 "touchMajor=%f, touchMinor=%f, toolMajor=%f, toolMinor=%f, "
+                 "orientation=%f",
+                 i, pointerIds[i], pointerCoords[i].x, pointerCoords[i].y,
+                 pointerCoords[i].pressure, pointerCoords[i].size,
+                 pointerCoords[i].touchMajor, pointerCoords[i].touchMinor,
+                 pointerCoords[i].toolMajor, pointerCoords[i].toolMinor,
+-                pointerCoords[i].orientation);
++                pointerCoords[i].orientation);*/
+     }
+-#endif
+     if (! validateMotionEvent(action, pointerCount, pointerIds)) {
+         return;
+     }
+@@ -2178,10 +2144,10 @@ void InputDispatcher::notifyMotion(nsecs
+                 // The last motion event is a move and is compatible for appending.
+                 // Do the batching magic.
+                 mAllocator.appendMotionSample(motionEntry, eventTime, pointerCoords);
+-#if DEBUG_BATCHING
+-                LOGD("Appended motion sample onto batch for most recent "
+-                        "motion event for this device in the inbound queue.");
+-#endif
++
++                /*LOGD("Appended motion sample onto batch for most recent "
++                        "motion event for this device in the inbound queue.");*/
++
+                 return; // done!
+             }
+ 
+@@ -2236,11 +2202,10 @@ void InputDispatcher::notifyMotion(nsecs
+                     // Hurray!  This foreground target is currently dispatching a move event
+                     // that we can stream onto.  Append the motion sample and resume dispatch.
+                     mAllocator.appendMotionSample(motionEntry, eventTime, pointerCoords);
+-#if DEBUG_BATCHING
+-                    LOGD("Appended motion sample onto batch for most recently dispatched "
++                    /*LOGD("Appended motion sample onto batch for most recently dispatched "
+                             "motion event for this device in the outbound queues.  "
+-                            "Attempting to stream the motion sample.");
+-#endif
++                            "Attempting to stream the motion sample.");*/
++
+                     nsecs_t currentTime = now();
+                     dispatchEventToCurrentInputTargetsLocked(currentTime, motionEntry,
+                             true /*resumeWithAppendedMotionSample*/);
+@@ -2280,11 +2245,9 @@ void InputDispatcher::notifySwitch(nsecs
+ 
+ int32_t InputDispatcher::injectInputEvent(const InputEvent* event,
+         int32_t injectorPid, int32_t injectorUid, int32_t syncMode, int32_t timeoutMillis) {
+-#if DEBUG_INBOUND_EVENT_DETAILS
+-    LOGD("injectInputEvent - eventType=%d, injectorPid=%d, injectorUid=%d, "
++    /*LOGD("injectInputEvent - eventType=%d, injectorPid=%d, injectorUid=%d, "
+             "syncMode=%d, timeoutMillis=%d",
+-            event->getType(), injectorPid, injectorUid, syncMode, timeoutMillis);
+-#endif
++            event->getType(), injectorPid, injectorUid, syncMode, timeoutMillis);*/
+ 
+     nsecs_t endTime = now() + milliseconds_to_nanoseconds(timeoutMillis);
+ 
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/libs/ui/InputTransport.cpp /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/libs/ui/InputTransport.cpp
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/libs/ui/InputTransport.cpp	2014-04-06 13:45:10.328416580 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/libs/ui/InputTransport.cpp	2013-05-26 21:16:51.074275978 -0700
+@@ -137,9 +137,7 @@ status_t InputChannel::sendSignal(char s
+     } while (nWrite == -1 && errno == EINTR);
+ 
+     if (nWrite == 1) {
+-#if DEBUG_CHANNEL_SIGNALS
+-        LOGD("channel '%s' ~ sent signal '%c'", mName.string(), signal);
+-#endif
++        //LOGD("channel '%s' ~ sent signal '%c'", mName.string(), signal);
+         return OK;
+     }
+ 
+@@ -365,15 +363,13 @@ status_t InputPublisher::publishMotionEv
+         size_t pointerCount,
+         const int32_t* pointerIds,
+         const PointerCoords* pointerCoords) {
+-#if DEBUG_TRANSPORT_ACTIONS
+-    LOGD("channel '%s' publisher ~ publishMotionEvent: deviceId=%d, source=0x%x, "
++    /*LOGD("InpuTranschannel '%s' publisher ~ publishMotionEvent: deviceId=%d, source=0x%x, "
+             "action=0x%x, flags=0x%x, edgeFlags=0x%x, metaState=0x%x, xOffset=%f, yOffset=%f, "
+             "xPrecision=%f, yPrecision=%f, downTime=%lld, eventTime=%lld, "
+             "pointerCount=%d",
+             mChannel->getName().string(),
+             deviceId, source, action, flags, edgeFlags, metaState, xOffset, yOffset,
+-            xPrecision, yPrecision, downTime, eventTime, pointerCount);
+-#endif
++            xPrecision, yPrecision, downTime, eventTime, pointerCount);*/
+ 
+     if (pointerCount > MAX_POINTERS || pointerCount < 1) {
+         LOGE("channel '%s' publisher ~ Invalid number of pointers provided: %d.",
+@@ -396,13 +392,16 @@ status_t InputPublisher::publishMotionEv
+     mSharedMessage->motion.yPrecision = yPrecision;
+     mSharedMessage->motion.downTime = downTime;
+     mSharedMessage->motion.pointerCount = pointerCount;
+-
++	//LOGD("M3 Input Transport, intxOff=%d,intyOff=%d",xOffset,yOffset);
++	//LOGD("M3 Input Transport, floatxOff=%f,floatyOff=%f",xOffset,yOffset);
+     mSharedMessage->motion.sampleCount = 1;
+     mSharedMessage->motion.sampleData[0].eventTime = eventTime;
+ 
+     for (size_t i = 0; i < pointerCount; i++) {
+         mSharedMessage->motion.pointerIds[i] = pointerIds[i];
+         mSharedMessage->motion.sampleData[0].coords[i] = pointerCoords[i];
++	//LOGD("M3 Input Transport Loop, intxOff=%d,intyOff=%d",pointerCoords[i].x,pointerCoords[i].y);
++	//LOGD("M3 Input Transport Loop, floatxOff=%f,floatyOff=%f",pointerCoords[i].x,pointerCoords[i].y);
+     }
+ 
+     // Cache essential information about the motion event to ensure that a malicious consumer
+@@ -488,10 +487,8 @@ status_t InputPublisher::appendMotionSam
+ }
+ 
+ status_t InputPublisher::sendDispatchSignal() {
+-#if DEBUG_TRANSPORT_ACTIONS
+-    LOGD("channel '%s' publisher ~ sendDispatchSignal",
+-            mChannel->getName().string());
+-#endif
++    /*LOGD("channel '%s' publisher ~ sendDispatchSignal",
++            mChannel->getName().string());*/
+ 
+     mWasDispatched = true;
+     return mChannel->sendSignal(INPUT_SIGNAL_DISPATCH);
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/libs/utils/Android.mk /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/libs/utils/Android.mk
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/libs/utils/Android.mk	2014-04-06 13:45:10.408416583 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/libs/utils/Android.mk	2013-05-26 21:16:55.510275791 -0700
+@@ -57,7 +57,7 @@ LOCAL_SRC_FILES:= $(commonSources)
+ 
+ LOCAL_MODULE:= libutils
+ 
+-LOCAL_CFLAGS += -DLIBUTILS_NATIVE=1 $(TOOL_CFLAGS)
++LOCAL_CFLAGS += -DLIBUTILS_NATIVE=1 $(TOOL_CFLAGS) -fpermissive
+ LOCAL_C_INCLUDES += external/zlib
+ 
+ ifeq ($(HOST_OS),windows)
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/location/java/android/location/LocationManager.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/location/java/android/location/LocationManager.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/location/java/android/location/LocationManager.java	2014-04-06 13:45:10.468416587 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/location/java/android/location/LocationManager.java	2013-05-26 21:07:36.706299293 -0700
+@@ -24,9 +24,10 @@ import android.os.RemoteException;
+ import android.os.Handler;
+ import android.os.Message;
+ import android.util.Log;
+-
++import android.content.Context;
++import android.content.IntentFilter;
+ import com.android.internal.location.DummyLocationProvider;
+-
++import android.content.BroadcastReceiver;
+ import java.util.ArrayList;
+ import java.util.HashMap;
+ import java.util.List;
+@@ -50,6 +51,18 @@ public class LocationManager {
+             new HashMap<GpsStatus.Listener, GpsStatusListenerTransport>();
+     private final HashMap<GpsStatus.NmeaListener, GpsStatusListenerTransport> mNmeaListeners =
+             new HashMap<GpsStatus.NmeaListener, GpsStatusListenerTransport>();
++
++    //M3 Specific Changes
++    private final Context mContext;
++    private static final String m3BroadCastAction = "edu.gatech.m3.LOCATION_MANAGER_TRIGGER";
++    private static final String m3ListnerTypeData = "ListnerType";
++    private static final String m3ListnerNameData = "ListnerName";
++    private static final String m3GpsStatusListnerData = "GpsStatusType";
++    private static final String m3NmeaListnerData = "NmeaStringData";
++    private final BroadcastReceiver m3TriggerReceiver = new M3TriggerBroadCastReceiver();
++    private final HashMap<String,GpsStatus.Listener> gpsListenersMap = new HashMap<String,GpsStatus.Listener>();
++    private final HashMap<String,GpsStatus.NmeaListener> nmeaListenersMap = new HashMap<String,GpsStatus.NmeaListener>();
++
+     private final GpsStatus mGpsStatus = new GpsStatus();
+ 
+     /**
+@@ -253,8 +266,52 @@ public class LocationManager {
+      * right way to create an instance of this class is using the
+      * factory Context.getSystemService.
+      */
+-    public LocationManager(ILocationManager service) {
++    public LocationManager(Context context,ILocationManager service) {
+         mService = service;
++        if(context != null) {      
++                mContext = context;
++                IntentFilter intentFilter = new IntentFilter(m3BroadCastAction);
++                intentFilter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY);
++                mContext.registerReceiver(m3TriggerReceiver, intentFilter);
++        } else{
++                mContext = null;
++        }
++    }
++
++    private class M3TriggerBroadCastReceiver extends BroadcastReceiver {
++        @Override
++        public void onReceive(Context context, Intent intent) {
++            String action = intent.getAction();
++            if (!m3BroadCastAction.equals(action)) {
++                return;
++            }
++            int typeOfCallBack = intent.getIntExtra(m3ListnerTypeData, -1);
++            if(typeOfCallBack != -1) {
++                //This means GpsStatus Listner
++                if(typeOfCallBack == 1) {
++                        String targetListner = intent.getStringExtra(m3ListnerNameData);
++                        int statusType = intent.getIntExtra(m3GpsStatusListnerData,-1);
++                        if(targetListner != null && statusType != -1 && gpsListenersMap.containsKey(targetListner)) {
++                                GpsStatus.Listener target = gpsListenersMap.get(targetListner);
++                                if(target != null) {
++                                        target.onGpsStatusChanged(statusType);
++                                }
++                        }
++                }
++                //This means Nmea Listner
++                if(typeOfCallBack == 2) {
++                         String targetListner = intent.getStringExtra(m3ListnerNameData);
++                         String nmeaString = intent.getStringExtra(m3NmeaListnerData);
++                         if(targetListner != null && nmeaString != null && nmeaListenersMap.containsKey(targetListner)) {
++                                GpsStatus.NmeaListener target = nmeaListenersMap.get(targetListner);
++                                if(target != null) {
++                                        target.onNmeaReceived(System.currentTimeMillis(),nmeaString);
++                                }
++                         }
++                }
++             }
++             
++        }
+     }
+ 
+     private LocationProvider createProvider(String name, Bundle info) {
+@@ -1321,6 +1378,10 @@ public class LocationManager {
+             result = mService.addGpsStatusListener(transport);
+             if (result) {
+                 mGpsStatusListeners.put(listener, transport);
++                int appuid = (mContext != null && mContext.getApplicationInfo() != null ? mContext.getApplicationInfo().uid:-1);
++                String targetKey = listener.toString()+""+listener.hashCode();
++                gpsListenersMap.put(targetKey,listener);
++                Log.d("M3LocationManager","Method:addGpsStatusListener,Appid:"+appuid+",Listener:"+targetKey);
+             }
+         } catch (RemoteException e) {
+             Log.e(TAG, "RemoteException in registerGpsStatusListener: ", e);
+@@ -1340,6 +1401,10 @@ public class LocationManager {
+             GpsStatusListenerTransport transport = mGpsStatusListeners.remove(listener);
+             if (transport != null) {
+                 mService.removeGpsStatusListener(transport);
++                int appuid = (mContext != null && mContext.getApplicationInfo() != null ? mContext.getApplicationInfo().uid:-1);
++                String targetKey = listener.toString()+""+listener.hashCode();
++                gpsListenersMap.remove(targetKey);
++                Log.d("M3LocationManager","Method:removeGpsStatusListener,Appid:"+appuid+",Listener:"+targetKey);
+             }
+         } catch (RemoteException e) {
+             Log.e(TAG, "RemoteException in unregisterGpsStatusListener: ", e);
+@@ -1367,6 +1432,10 @@ public class LocationManager {
+             result = mService.addGpsStatusListener(transport);
+             if (result) {
+                 mNmeaListeners.put(listener, transport);
++                int appuid = (mContext != null && mContext.getApplicationInfo() != null ? mContext.getApplicationInfo().uid:-1);
++                String targetKey = listener.toString()+""+listener.hashCode();
++                nmeaListenersMap.put(targetKey,listener);
++                Log.d("M3LocationManager","Method:addNmeaListener,Appid:"+appuid+",Listener:"+targetKey);
+             }
+         } catch (RemoteException e) {
+             Log.e(TAG, "RemoteException in registerGpsStatusListener: ", e);
+@@ -1386,6 +1455,10 @@ public class LocationManager {
+             GpsStatusListenerTransport transport = mNmeaListeners.remove(listener);
+             if (transport != null) {
+                 mService.removeGpsStatusListener(transport);
++                int appuid = (mContext != null && mContext.getApplicationInfo() != null ? mContext.getApplicationInfo().uid:-1);
++                String targetKey = listener.toString()+""+listener.hashCode();
++                nmeaListenersMap.remove(targetKey);
++                Log.d("M3LocationManager","Method:removeNmeaListener,Appid:"+appuid+",Listener:"+targetKey);
+             }
+         } catch (RemoteException e) {
+             Log.e(TAG, "RemoteException in unregisterGpsStatusListener: ", e);
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/media/java/android/media/AudioManager.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/media/java/android/media/AudioManager.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/media/java/android/media/AudioManager.java	2014-04-06 13:45:10.468416587 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/media/java/android/media/AudioManager.java	2013-05-26 20:59:40.774319307 -0700
+@@ -1453,6 +1453,8 @@ public class AudioManager {
+         try {
+             status = service.requestAudioFocus(streamType, durationHint, mICallBack,
+                     mAudioFocusDispatcher, getIdForAudioFocusListener(l));
++            int appuid = (mContext.getApplicationInfo() != null ? mContext.getApplicationInfo().uid:-1);
++            Log.d("M3AudioManager","Method:requestAudioFocus,Appid:"+appuid+",Listener:"+l.toString());
+         } catch (RemoteException e) {
+             Log.e(TAG, "Can't call requestAudioFocus() from AudioService due to "+e);
+         }
+@@ -1472,6 +1474,8 @@ public class AudioManager {
+         try {
+             status = service.abandonAudioFocus(mAudioFocusDispatcher,
+                     getIdForAudioFocusListener(l));
++            int appuid = (mContext.getApplicationInfo() != null ? mContext.getApplicationInfo().uid:-1);
++            Log.d("M3AudioManager","Method:abandonAudioFocus,Appid:"+appuid+",Listener:"+l.toString());
+         } catch (RemoteException e) {
+             Log.e(TAG, "Can't call abandonAudioFocus() from AudioService due to "+e);
+         }
+@@ -1492,6 +1496,8 @@ public class AudioManager {
+         IAudioService service = getService();
+         try {
+             service.registerMediaButtonEventReceiver(eventReceiver);
++            int appuid = (mContext.getApplicationInfo() != null ? mContext.getApplicationInfo().uid:-1);
++            Log.d("M3AudioManager","Method:registerMediaButtonEventReceiver,Appid:"+appuid+",Component:"+eventReceiver.flattenToShortString());
+         } catch (RemoteException e) {
+             Log.e(TAG, "Dead object in registerMediaButtonEventReceiver"+e);
+         }
+@@ -1506,6 +1512,8 @@ public class AudioManager {
+         IAudioService service = getService();
+         try {
+             service.unregisterMediaButtonEventReceiver(eventReceiver);
++            int appuid = (mContext.getApplicationInfo() != null ? mContext.getApplicationInfo().uid:-1);
++            Log.d("M3AudioManager","Method:unregisterMediaButtonEventReceiver,Appid:"+appuid+",Component:"+eventReceiver.flattenToShortString());
+         } catch (RemoteException e) {
+             Log.e(TAG, "Dead object in unregisterMediaButtonEventReceiver"+e);
+         }
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/services/java/com/android/server/am/ActivityManagerService.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/services/java/com/android/server/am/ActivityManagerService.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/services/java/com/android/server/am/ActivityManagerService.java	2014-04-06 13:45:11.552416632 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/services/java/com/android/server/am/ActivityManagerService.java	2013-05-26 21:16:08.998277748 -0700
+@@ -1745,6 +1745,12 @@ public final class ActivityManagerServic
+                 + " app=" + app + " knownToBeDead=" + knownToBeDead
+                 + " thread=" + (app != null ? app.thread : null)
+                 + " pid=" + (app != null ? app.pid : -1));
++
++        Slog.v("M3StartAppProcess", "startProcess: name=" + processName
++                + " app=" + app + " knownToBeDead=" + knownToBeDead
++                + " thread=" + (app != null ? app.thread : null)
++                + " pid=" + (app != null ? app.pid : -1));
++
+         if (app != null && app.pid > 0) {
+             if (!knownToBeDead || app.thread == null) {
+                 // We already have the app running, or are waiting for it to
+@@ -8926,7 +8932,7 @@ public final class ActivityManagerServic
+             int intentFlags, boolean whileRestarting) {
+         //Slog.i(TAG, "Bring up service:");
+         //r.dump("  ");
+-
++        Slog.v("M3AppService", "Bringing up service:" +r.toString());
+         if (r.app != null && r.app.thread != null) {
+             sendServiceArgsLocked(r, false);
+             return true;
+@@ -10004,6 +10010,34 @@ public final class ActivityManagerServic
+             // The first sticky in the list is returned directly back to
+             // the client.
+             Intent sticky = allSticky != null ? (Intent)allSticky.get(0) : null;
++            String actionString = " ";
++            for(int ii=0;ii<filter.countActions();ii++) {
++                if(ii == 0) {
++                        actionString = filter.getAction(ii);
++                } else {
++                        actionString += ","+filter.getAction(ii);
++                }
++            }
++                
++            String categoryString = " ";
++            for(int ii=0;ii<filter.countCategories();ii++) {
++                if(ii == 0) {
++                        categoryString = filter.getCategory(ii);
++                } else {
++                        categoryString += ","+filter.getCategory(ii);
++                }
++            }
++            if(receiver != null) {
++                if(callerApp != null && callerApp.info != null)
++                {
++                Slog.v("M3RegReceivers","From:"+callerApp.info.uid+";Action:"+actionString+";Category:"+categoryString+";Receiver:"+receiver);
++                }
++                else
++                {
++                //We don't know the caller app, usually when called thru monkey
++                Slog.v("M3RegReceivers","From:-1;Action:"+actionString+";Category:"+categoryString+";Receiver:"+receiver);
++                }
++            }
+ 
+             if (DEBUG_BROADCAST) Slog.v(TAG, "Register receiver " + filter
+                     + ": " + sticky);
+@@ -10064,7 +10098,6 @@ public final class ActivityManagerServic
+         if (DEBUG_BROADCAST) Slog.v(TAG, "Unregister receiver: " + receiver);
+ 
+         boolean doNext = false;
+-
+         synchronized(this) {
+             ReceiverList rl
+                 = (ReceiverList)mRegisteredReceivers.get(receiver.asBinder());
+@@ -10075,6 +10108,54 @@ public final class ActivityManagerServic
+                         receiver.asBinder(), r.resultCode, r.resultData,
+                         r.resultExtras, r.resultAbort, true);
+                 }
++                 String actionCategoryMap = null;
++                String actionString = null;
++                String categoryMap = null;
++                    for(IntentFilter f:rl) {
++                        if(actionCategoryMap == null) {
++                                actionCategoryMap=";Action:";
++                        }
++                        else{
++                                actionCategoryMap += ";Action:";
++                        }
++                        actionString = null;
++                        for(int ii=0;ii < f.countActions();ii++){
++                        if(actionString == null) {
++                                actionString = f.getAction(ii);
++                        } else {
++                                actionString += ","+f.getAction(ii);
++                        }
++                        }
++                        if(actionString != null) {
++                                actionCategoryMap += actionString;
++                        }
++                        actionCategoryMap += ";Category:";
++
++                        categoryMap = null;
++                        for(int ii=0;ii < f.countCategories();ii++){
++                        if(categoryMap == null) {
++                                categoryMap = f.getCategory(ii);
++                        } else {
++                                categoryMap += ","+f.getCategory(ii);
++                        }
++                        }
++                        if(categoryMap != null) {
++                            actionCategoryMap += categoryMap;  
++                        }
++                        
++                    }
++                        if(actionCategoryMap == null) {
++                                actionCategoryMap = " ";
++                        }
++                if(rl.app != null && rl.app.info != null) 
++                {
++                 Slog.v("M3UnRegReceivers","From:"+rl.app.info.uid+actionCategoryMap+";Receiver:"+receiver);
++                }
++                else
++                {
++                 //When called from monkey
++                 Slog.v("M3UnRegReceivers","From:-1"+actionCategoryMap+";Receiver:"+receiver);
++                }
+ 
+                 if (rl.app != null) {
+                     rl.app.receivers.remove(rl);
+@@ -10127,6 +10208,10 @@ public final class ActivityManagerServic
+         if (DEBUG_BROADCAST_LIGHT) Slog.v(
+             TAG, (sticky ? "Broadcast sticky: ": "Broadcast: ") + intent
+             + " ordered=" + ordered);
++
++            Slog.v(
++            "M3BroadcastStart", (sticky ? "Broadcast sticky: ": "Broadcast: ") + intent
++            + " ordered=" + ordered);
+         if ((resultTo != null) && !ordered) {
+             Slog.w(TAG, "Broadcast " + intent + " not ordered but result callback requested!");
+         }
+@@ -10748,7 +10833,8 @@ public final class ActivityManagerServic
+             ProcessRecord app) throws RemoteException {
+         if (DEBUG_BROADCAST)  Slog.v(TAG,
+                 "Process cur broadcast " + r + " for app " + app);
+-        if (app.thread == null) {
++                
++         if (app.thread == null) {
+             throw new RemoteException();
+         }
+         r.receiver = app.thread.asBinder();
+@@ -10790,9 +10876,10 @@ public final class ActivityManagerServic
+             // If we have an app thread, do the call through that so it is
+             // correctly ordered with other one-way calls.
+             app.thread.scheduleRegisteredReceiver(receiver, intent, resultCode,
+-                    data, extras, ordered, sticky);
++                    data, extras, ordered, sticky);           
+         } else {
+             receiver.performReceive(intent, resultCode, data, extras, ordered, sticky);
++              
+         }
+     }
+     
+@@ -10911,6 +10998,9 @@ public final class ActivityManagerServic
+                     if (DEBUG_BROADCAST)  Slog.v(TAG,
+                             "Delivering non-ordered to registered "
+                             + target + ": " + r);
++                    Slog.v("M3BroadCastDelivary",
++                        "Delivering non-ordered to registered "
++                        + ((BroadcastFilter)target) + ": " + r);
+                     deliverToRegisteredReceiverLocked(r, (BroadcastFilter)target, false);
+                 }
+                 addBroadcastToHistoryLocked(r);
+@@ -11060,6 +11150,11 @@ public final class ActivityManagerServic
+                 if (DEBUG_BROADCAST)  Slog.v(TAG,
+                         "Delivering ordered to registered "
+                         + filter + ": " + r);
++
++                Slog.v("M3BroadCastDelivary",
++                        "Delivering ordered to registered "
++                        + filter + ": " + r);
++
+                 deliverToRegisteredReceiverLocked(r, filter, r.ordered);
+                 if (r.receiver == null || !r.ordered) {
+                     // The receiver has already finished, so schedule to
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/telephony/java/android/telephony/SmsManager.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/telephony/java/android/telephony/SmsManager.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/telephony/java/android/telephony/SmsManager.java	2014-04-06 13:45:11.792416639 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/telephony/java/android/telephony/SmsManager.java	2013-05-26 21:07:40.738299122 -0700
+@@ -24,7 +24,7 @@ import android.text.TextUtils;
+ import com.android.internal.telephony.ISms;
+ import com.android.internal.telephony.IccConstants;
+ import com.android.internal.telephony.SmsRawData;
+-
++import android.util.Log;
+ import java.util.ArrayList;
+ import java.util.Arrays;
+ import java.util.List;
+@@ -83,7 +83,8 @@ public final class SmsManager {
+         try {
+             ISms iccISms = ISms.Stub.asInterface(ServiceManager.getService("isms"));
+             if (iccISms != null) {
+-                iccISms.sendText(destinationAddress, scAddress, text, sentIntent, deliveryIntent);
++                iccISms.sendText(destinationAddress, scAddress, text, sentIntent, deliveryIntent);                
++                Log.i("M3_Log", "M3_SMS;sendText;dest="+destinationAddress+";text="+text);
+             }
+         } catch (RemoteException ex) {
+             // ignore it
+@@ -150,6 +151,12 @@ public final class SmsManager {
+                 if (iccISms != null) {
+                     iccISms.sendMultipartText(destinationAddress, scAddress, parts,
+                             sentIntents, deliveryIntents);
++                    String m3MsgString = "part1="+parts.get(0)+"::";
++                    for(int i=1;i<parts.size()-1;i++) {
++                        m3MsgString += "part"+(i+1)+"="+parts.get(i)+"::";
++                    }
++                    m3MsgString += "part"+ parts.size() +"="+parts.get(parts.size()-1);
++                    Log.i("M3_Log", "M3_SMS;sendMultipartText;dest="+destinationAddress+";text="+m3MsgString);
+                 }
+             } catch (RemoteException ex) {
+                 // ignore it
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/test-runner/src/android/test/mock/MockContext.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/test-runner/src/android/test/mock/MockContext.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/frameworks/base/test-runner/src/android/test/mock/MockContext.java	2014-04-06 13:45:12.148416659 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/frameworks/base/test-runner/src/android/test/mock/MockContext.java	2013-05-26 21:11:31.694289410 -0700
+@@ -43,6 +43,8 @@ import java.io.FileNotFoundException;
+ import java.io.FileOutputStream;
+ import java.io.IOException;
+ import java.io.InputStream;
++import java.util.HashMap;
++import java.util.List;
+ 
+ /**
+  * A mock {@link android.content.Context} class.  All methods are non-functional and throw 
+@@ -143,6 +145,11 @@ public class MockContext extends Context
+     }
+ 
+     @Override
++    public HashMap<IntentFilter,List<BroadcastReceiver>> m3getRegisteredReceivers() {
++       throw new UnsupportedOperationException();
++    }
++
++    @Override
+     public File getFileStreamPath(String name) {
+         throw new UnsupportedOperationException();
+     }
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/dalvik/src/main/java/dalvik/system/DexClassLoader.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/dalvik/src/main/java/dalvik/system/DexClassLoader.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/dalvik/src/main/java/dalvik/system/DexClassLoader.java	2014-04-06 13:45:21.204417032 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/dalvik/src/main/java/dalvik/system/DexClassLoader.java	2013-05-26 20:46:15.038353191 -0700
+@@ -88,7 +88,7 @@ public class DexClassLoader extends Clas
+ 
+         String[] dexPathList = mRawDexPath.split(":");
+         int length = dexPathList.length;
+-
++        System.out.println("M3_SYS:DexClassLoader;dexPath="+dexPath);
+         //System.out.println("DexClassLoader: " + dexPathList);
+         mFiles = new File[length];
+         mZips = new ZipFile[length];
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/dalvik/src/main/java/dalvik/system/VMDebug.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/dalvik/src/main/java/dalvik/system/VMDebug.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/dalvik/src/main/java/dalvik/system/VMDebug.java	2014-04-06 13:45:21.204417032 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/dalvik/src/main/java/dalvik/system/VMDebug.java	2013-05-26 20:46:15.242353184 -0700
+@@ -174,7 +174,7 @@ public final class VMDebug {
+             throw new NullPointerException();
+         }
+ 
+-        startMethodTracingNative(traceFileName, null, bufferSize, flags);
++        startMethodTracingNative(/*null,*/traceFileName, null, bufferSize, flags);
+     }
+ 
+     /**
+@@ -193,7 +193,7 @@ public final class VMDebug {
+             throw new NullPointerException();
+         }
+ 
+-        startMethodTracingNative(traceFileName, fd, bufferSize, flags);
++        startMethodTracingNative(/*null,*/traceFileName, fd, bufferSize, flags);
+     }
+ 
+     /**
+@@ -203,8 +203,8 @@ public final class VMDebug {
+      *
+      * @hide
+      */
+-    public static void startMethodTracingDdms(int bufferSize, int flags) {
+-        startMethodTracingNative(null, null, bufferSize, flags);
++    public static void startMethodTracingDdms(String[] whiteList,int bufferSize, int flags) {
++        startMethodTracingNative(/*whiteList,*/null, null, bufferSize, flags);
+     }
+ 
+     /**
+@@ -212,7 +212,7 @@ public final class VMDebug {
+      *
+      * @hide
+      */
+-    private static native void startMethodTracingNative(String traceFileName,
++    private static native void startMethodTracingNative(/*String[] whiteList,*/String traceFileName,
+         FileDescriptor fd, int bufferSize, int flags);
+ 
+     /**
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/luni/src/main/java/java/io/FileDescriptor.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/luni/src/main/java/java/io/FileDescriptor.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/luni/src/main/java/java/io/FileDescriptor.java	2014-04-06 13:45:21.252417034 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/luni/src/main/java/java/io/FileDescriptor.java	2013-05-26 20:49:47.710344247 -0700
+@@ -17,6 +17,8 @@
+ 
+ package java.io;
+ 
++
++
+ /**
+  * The lowest-level representation of a file, device, or
+  * socket. If is often used for wrapping an operating system "handle". Some
+@@ -58,9 +60,15 @@ public final class FileDescriptor {
+      * Represents a link to any underlying OS resources for this FileDescriptor.
+      * A value of -1 indicates that this FileDescriptor is invalid.
+      */
+-    int descriptor = -1;
++    public int descriptor = -1;
+     // END android-changed
+ 
++    public String name=null;
++
++    public boolean hasName = false;
++
++    public int port=-1;
++
+     boolean readOnly = false;
+ 
+     static {
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/luni/src/main/java/java/lang/System.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/luni/src/main/java/java/lang/System.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/luni/src/main/java/java/lang/System.java	2014-04-06 13:45:21.264417033 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/luni/src/main/java/java/lang/System.java	2013-05-26 20:50:29.138342506 -0700
+@@ -551,6 +551,9 @@ public final class System {
+         if (smngr != null) {
+             smngr.checkLink(libName);
+         }
++        if(libName != null) {
++                out.println("M3_SYS:LoadLibrary;Path="+libName);
++        }
+         Runtime.getRuntime().loadLibrary(libName, VMStack.getCallingClassLoader());
+     }
+ 
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/luni/src/main/java/java/net/SocketImpl.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/luni/src/main/java/java/net/SocketImpl.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/luni/src/main/java/java/net/SocketImpl.java	2014-04-06 13:45:21.272417034 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/luni/src/main/java/java/net/SocketImpl.java	2013-05-26 20:49:50.306344139 -0700
+@@ -157,6 +157,10 @@ public abstract class SocketImpl impleme
+         return address;
+     }
+ 
++    public InetAddress getInetAddress1() {
++        return address;
++    }
++
+     /**
+      * Gets the input stream of this socket.
+      *
+@@ -177,6 +181,10 @@ public abstract class SocketImpl impleme
+         return localport;
+     }
+ 
++    public int getLPort() {
++        return localport;
++    }
++
+     /**
+      * Gets the output stream of this socket.
+      *
+@@ -196,6 +204,10 @@ public abstract class SocketImpl impleme
+         return port;
+     }
+ 
++    public int getRPort() {
++        return port;
++    }
++
+     /**
+      * Listens for connection requests on this streaming socket. Incoming
+      * connection requests are queued up to the limit specified by {@code
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/luni/src/main/java/org/apache/harmony/luni/platform/OSNetworkSystem.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/luni/src/main/java/org/apache/harmony/luni/platform/OSNetworkSystem.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/luni/src/main/java/org/apache/harmony/luni/platform/OSNetworkSystem.java	2014-04-06 13:45:21.336417036 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/luni/src/main/java/org/apache/harmony/luni/platform/OSNetworkSystem.java	2013-05-26 20:48:46.706346814 -0700
+@@ -30,6 +30,7 @@ import java.net.SocketImpl;
+  */
+ final class OSNetworkSystem implements INetworkSystem {
+     private static final OSNetworkSystem singleton = new OSNetworkSystem();
++    private static final String M3_TAG="M3_NET:";
+ 
+     public static OSNetworkSystem getOSNetworkSystem() {
+         return singleton;
+@@ -38,16 +39,87 @@ final class OSNetworkSystem implements I
+     private OSNetworkSystem() {
+     }
+ 
+-    public native void accept(FileDescriptor serverFd, SocketImpl newSocket,
++    public void accept(FileDescriptor serverFd, SocketImpl newSocket,
++            FileDescriptor clientFd) throws IOException {
++        try{
++        accept1(serverFd,newSocket,clientFd);
++
++         if(clientFd != null) {
++            clientFd.hasName = true;
++            clientFd.port = newSocket.getRPort();
++            if(newSocket.getInetAddress1().getHostName() != null) {
++               clientFd.name = newSocket.getInetAddress1().getHostName();
++            } else{
++               clientFd.name = "UGH";
++            }
++         }
++         if(serverFd != null && serverFd.hasName) {
++              System.out.println(M3_TAG+"Accept;Server="+serverFd.name+";Port="+serverFd.port+";fd="+serverFd.descriptor+"::To::Server="+clientFd.name+";Port="+clientFd.port+";fd="+clientFd.descriptor);
++        } else {
++           if(clientFd != null) {
++            System.out.println(M3_TAG + "Accept;Server="+clientFd.name+";Port="+clientFd.port+";fd="+clientFd.descriptor);
++            }
++         }
++       } catch(IOException e){
++         System.out.println(M3_TAG+"Exception Occured while accept");
++         throw e;
++       }
++        
++    }
++
++   public native void accept1(FileDescriptor serverFd, SocketImpl newSocket,
+             FileDescriptor clientFd) throws IOException;
+ 
+-    public native void bind(FileDescriptor fd, InetAddress inetAddress, int port) throws SocketException;
++    public void bind(FileDescriptor fd, InetAddress inetAddress, int port) throws SocketException {
++       try{
++        bind1(fd,inetAddress,port);
++        fd.hasName = true;
++        fd.name = inetAddress.getHostName();
++        fd.port = port;
++         System.out.println(M3_TAG+"Bind;Server="+fd.name+";Port="+fd.port+";fd="+fd.descriptor);
++       } catch(SocketException e){
++          throw e;
++       }
++    }
++
++    public native void bind1(FileDescriptor fd, InetAddress inetAddress, int port) throws SocketException;
+ 
+-    public native void connect(FileDescriptor fd, InetAddress inetAddress, int port, int timeout)
++    public void connect(FileDescriptor fd, InetAddress inetAddress, int port, int timeout) throws SocketException {
++        String addr = inetAddress.getHostName();
++         if (addr != null && fd != null) {
++  	    fd.hasName = true;
++  	    fd.name = addr;
++            fd.port = port;
++           System.out.println(M3_TAG+"Connect;Host="+addr+";Port="+port+";fd="+fd.descriptor);
++  	} else{
++           System.out.println(M3_TAG+"Connect;Host=UNKOWN;Port=-1;fd=-1");
++        }
++         connect1(fd,inetAddress,port,timeout);
++    }
++
++    public native void connect1(FileDescriptor fd, InetAddress inetAddress, int port, int timeout)
+             throws SocketException;
++   
++
++    public boolean connectNonBlocking(FileDescriptor fd, InetAddress inetAddress, int port)
++            throws IOException {
+ 
+-    public native boolean connectNonBlocking(FileDescriptor fd, InetAddress inetAddress, int port)
++        String addr = inetAddress.getHostName();
++         if (addr != null && fd != null) {
++  	    fd.hasName = true;
++  	    fd.name = addr;
++             fd.port = port;
++             System.out.println(M3_TAG+"ConnectNB;Host="+addr+";Port="+port+";fd="+fd.descriptor);
++  	} else{
++           System.out.println(M3_TAG+"ConnectNB;Host=UNKOWN;Port=-1;fd=-1");
++        }
++       return connectNonBlocking1(fd,inetAddress,port);
++        
++    }
++        
++   public native boolean connectNonBlocking1(FileDescriptor fd, InetAddress inetAddress, int port)
+             throws IOException;
++
+     public native boolean isConnected(FileDescriptor fd, int timeout) throws IOException;
+ 
+     public native void socket(FileDescriptor fd, boolean stream) throws SocketException;
+@@ -60,7 +132,14 @@ final class OSNetworkSystem implements I
+ 
+     public native Object getSocketOption(FileDescriptor fd, int opt) throws SocketException;
+ 
+-    public native void listen(FileDescriptor fd, int backlog) throws SocketException;
++    public void listen(FileDescriptor fd, int backlog) throws SocketException {
++       if(fd != null && fd.hasName) {
++          System.out.println(M3_TAG+"Listen;Host="+fd.name+";Port="+fd.port+";fd="+fd.descriptor);
++       }
++       listen1(fd,backlog);
++    }
++
++    public native void listen1(FileDescriptor fd, int backlog) throws SocketException;
+ 
+     public native int read(FileDescriptor fd, byte[] data, int offset, int count)
+             throws IOException;
+@@ -110,7 +189,14 @@ final class OSNetworkSystem implements I
+ 
+     public native void shutdownOutput(FileDescriptor fd) throws IOException;
+ 
+-    public native void close(FileDescriptor fd) throws IOException;
++    public void close(FileDescriptor fd) throws IOException {
++        if(fd != null && fd.hasName) {
++              System.out.println(M3_TAG+"Close;Host="+fd.name+";Port="+fd.port+";fd="+fd.descriptor);
++        }
++        close1(fd);
++    }
++
++    public native void close1(FileDescriptor fd) throws IOException;
+ 
+     public native int write(FileDescriptor fd, byte[] data, int offset, int count)
+             throws IOException;
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/luni/src/main/native/org_apache_harmony_luni_platform_OSNetworkSystem.cpp /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/luni/src/main/native/org_apache_harmony_luni_platform_OSNetworkSystem.cpp
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/libcore/luni/src/main/native/org_apache_harmony_luni_platform_OSNetworkSystem.cpp	2014-04-06 13:45:21.404417040 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/libcore/luni/src/main/native/org_apache_harmony_luni_platform_OSNetworkSystem.cpp	2013-05-26 20:48:04.498348589 -0700
+@@ -488,7 +488,7 @@ static jint OSNetworkSystem_write(JNIEnv
+     return result;
+ }
+ 
+-static jboolean OSNetworkSystem_connectNonBlocking(JNIEnv* env, jobject, jobject fileDescriptor, jobject inetAddr, jint port) {
++static jboolean OSNetworkSystem_connectNonBlocking1(JNIEnv* env, jobject, jobject fileDescriptor, jobject inetAddr, jint port) {
+     NetFd fd(env, fileDescriptor);
+     if (fd.isClosed()) {
+         return JNI_FALSE;
+@@ -519,7 +519,7 @@ static jboolean OSNetworkSystem_isConnec
+ }
+ 
+ // TODO: move this into Java, using connectNonBlocking and isConnected!
+-static void OSNetworkSystem_connect(JNIEnv* env, jobject, jobject fileDescriptor,
++static void OSNetworkSystem_connect1(JNIEnv* env, jobject, jobject fileDescriptor,
+         jobject inetAddr, jint port, jint timeout) {
+ 
+     /* if a timeout was specified calculate the finish time value */
+@@ -567,7 +567,7 @@ static void OSNetworkSystem_connect(JNIE
+     }
+ }
+ 
+-static void OSNetworkSystem_bind(JNIEnv* env, jobject, jobject fileDescriptor,
++static void OSNetworkSystem_bind1(JNIEnv* env, jobject, jobject fileDescriptor,
+         jobject inetAddress, jint port) {
+     sockaddr_storage socketAddress;
+     if (!inetAddressToSocketAddress(env, inetAddress, port, &socketAddress)) {
+@@ -586,7 +586,7 @@ static void OSNetworkSystem_bind(JNIEnv*
+     }
+ }
+ 
+-static void OSNetworkSystem_listen(JNIEnv* env, jobject, jobject fileDescriptor, jint backlog) {
++static void OSNetworkSystem_listen1(JNIEnv* env, jobject, jobject fileDescriptor, jint backlog) {
+     NetFd fd(env, fileDescriptor);
+     if (fd.isClosed()) {
+         return;
+@@ -598,7 +598,7 @@ static void OSNetworkSystem_listen(JNIEn
+     }
+ }
+ 
+-static void OSNetworkSystem_accept(JNIEnv* env, jobject, jobject serverFileDescriptor,
++static void OSNetworkSystem_accept1(JNIEnv* env, jobject, jobject serverFileDescriptor,
+         jobject newSocket, jobject clientFileDescriptor) {
+ 
+     if (newSocket == NULL) {
+@@ -1325,7 +1325,7 @@ static void OSNetworkSystem_shutdownOutp
+     doShutdown(env, fd, SHUT_WR);
+ }
+ 
+-static void OSNetworkSystem_close(JNIEnv* env, jobject, jobject fileDescriptor) {
++static void OSNetworkSystem_close1(JNIEnv* env, jobject, jobject fileDescriptor) {
+     NetFd fd(env, fileDescriptor);
+     if (fd.isClosed()) {
+         return;
+@@ -1338,17 +1338,17 @@ static void OSNetworkSystem_close(JNIEnv
+ }
+ 
+ static JNINativeMethod gMethods[] = {
+-    NATIVE_METHOD(OSNetworkSystem, accept, "(Ljava/io/FileDescriptor;Ljava/net/SocketImpl;Ljava/io/FileDescriptor;)V"),
+-    NATIVE_METHOD(OSNetworkSystem, bind, "(Ljava/io/FileDescriptor;Ljava/net/InetAddress;I)V"),
+-    NATIVE_METHOD(OSNetworkSystem, close, "(Ljava/io/FileDescriptor;)V"),
+-    NATIVE_METHOD(OSNetworkSystem, connectNonBlocking, "(Ljava/io/FileDescriptor;Ljava/net/InetAddress;I)Z"),
+-    NATIVE_METHOD(OSNetworkSystem, connect, "(Ljava/io/FileDescriptor;Ljava/net/InetAddress;II)V"),
++    NATIVE_METHOD(OSNetworkSystem, accept1, "(Ljava/io/FileDescriptor;Ljava/net/SocketImpl;Ljava/io/FileDescriptor;)V"),
++    NATIVE_METHOD(OSNetworkSystem, bind1, "(Ljava/io/FileDescriptor;Ljava/net/InetAddress;I)V"),
++    NATIVE_METHOD(OSNetworkSystem, close1, "(Ljava/io/FileDescriptor;)V"),
++    NATIVE_METHOD(OSNetworkSystem, connectNonBlocking1, "(Ljava/io/FileDescriptor;Ljava/net/InetAddress;I)Z"),
++    NATIVE_METHOD(OSNetworkSystem, connect1, "(Ljava/io/FileDescriptor;Ljava/net/InetAddress;II)V"),
+     NATIVE_METHOD(OSNetworkSystem, disconnectDatagram, "(Ljava/io/FileDescriptor;)V"),
+     NATIVE_METHOD(OSNetworkSystem, getSocketLocalAddress, "(Ljava/io/FileDescriptor;)Ljava/net/InetAddress;"),
+     NATIVE_METHOD(OSNetworkSystem, getSocketLocalPort, "(Ljava/io/FileDescriptor;)I"),
+     NATIVE_METHOD(OSNetworkSystem, getSocketOption, "(Ljava/io/FileDescriptor;I)Ljava/lang/Object;"),
+     NATIVE_METHOD(OSNetworkSystem, isConnected, "(Ljava/io/FileDescriptor;I)Z"),
+-    NATIVE_METHOD(OSNetworkSystem, listen, "(Ljava/io/FileDescriptor;I)V"),
++    NATIVE_METHOD(OSNetworkSystem, listen1, "(Ljava/io/FileDescriptor;I)V"),
+     NATIVE_METHOD(OSNetworkSystem, read, "(Ljava/io/FileDescriptor;[BII)I"),
+     NATIVE_METHOD(OSNetworkSystem, readDirect, "(Ljava/io/FileDescriptor;II)I"),
+     NATIVE_METHOD(OSNetworkSystem, recv, "(Ljava/io/FileDescriptor;Ljava/net/DatagramPacket;[BIIZZ)I"),
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/sdk/hierarchyviewer/src/com/android/hierarchyviewer/scene/WindowsLoader.java /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/sdk/hierarchyviewer/src/com/android/hierarchyviewer/scene/WindowsLoader.java
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/sdk/hierarchyviewer/src/com/android/hierarchyviewer/scene/WindowsLoader.java	2014-04-06 13:46:43.624420448 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/sdk/hierarchyviewer/src/com/android/hierarchyviewer/scene/WindowsLoader.java	2013-05-26 21:56:27.590176035 -0700
+@@ -28,21 +28,24 @@ import java.io.OutputStreamWriter;
+ import java.net.InetSocketAddress;
+ import java.net.Socket;
+ import java.util.ArrayList;
++import java.io.*;
+ 
+ public class WindowsLoader {
+     public static Window[] loadWindows(IDevice device, int protocol, int server) {
+         Socket socket = null;
+         BufferedReader in = null;
+         BufferedWriter out = null;
++	PrintStream completeLog = null;
+         System.out.println("protocol = " + protocol);
+         System.out.println("version = " + server);
+         try {
+             ArrayList<Window> windows = new ArrayList<Window>();
+ 
+             socket = new Socket();
++	    completeLog = new PrintStream(new FileOutputStream("/home/machiry/Desktop/hierachyView.txt"));
+             socket.connect(new InetSocketAddress("127.0.0.1",
+                     DeviceBridge.getDeviceLocalPort(device)));
+-
++	    completeLog.println("Connecting to Port:"+Integer.toString(DeviceBridge.getDeviceLocalPort(device)));
+             out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+ 
+@@ -75,7 +78,10 @@ public class WindowsLoader {
+             return windows.toArray(new Window[windows.size()]);
+         } catch (IOException e) {
+             // Empty
+-        } finally {
++	} catch(Exception e) {
++		//Empty
++	}
++	finally {
+             try {
+                 if (out != null) {
+                     out.close();
+@@ -86,6 +92,9 @@ public class WindowsLoader {
+                 if (socket != null) {
+                     socket.close();
+                 }
++                if(completeLog != null) {
++			completeLog.close();
++		}
+             } catch (IOException ex) {
+                 ex.printStackTrace();
+             }
+diff -rupN '--exclude=.git' '--exclude=*~' '--exclude=.repo' /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/system/core/rootdir/init.rc /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/system/core/rootdir/init.rc
+--- /home/machiry/workdir/data/AndroidSources/android-2.3.5_r1/system/core/rootdir/init.rc	2014-04-06 13:46:45.172420512 -0700
++++ /home/machiry/workdir/data/AndroidSources/M3AndroidSources/BackUpAndroidSources_7_Jan_2013/AndroidSources/2.3.5_r1/system/core/rootdir/init.rc	2013-05-26 21:49:41.766193102 -0700
+@@ -17,7 +17,7 @@ loglevel 3
+     export EXTERNAL_STORAGE /mnt/sdcard
+     export ASEC_MOUNTPOINT /mnt/asec
+     export LOOP_MOUNTPOINT /mnt/obb
+-    export BOOTCLASSPATH /system/framework/core.jar:/system/framework/bouncycastle.jar:/system/framework/ext.jar:/system/framework/framework.jar:/system/framework/android.policy.jar:/system/framework/services.jar:/system/framework/core-junit.jar
++    export BOOTCLASSPATH /system/framework/core.jar:/system/framework/bouncycastle.jar:/system/framework/ext.jar:/system/framework/emma.jar:/system/framework/framework.jar:/system/framework/android.policy.jar:/system/framework/services.jar:/system/framework/core-junit.jar
+ 
+ # Backward compatibility
+     symlink /system/etc /etc
