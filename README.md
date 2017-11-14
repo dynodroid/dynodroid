@@ -14,7 +14,7 @@ cp <path_to_the_downloaded_file> <local_repo_path>/dynodroidsetup/freshavd/emu.a
 4. Follow the instructions in the [user doc](https://github.com/dynodroid/dynodroid/blob/master/docs/dd_use.pdf)
 
 # Self-contained VHD
-* You can download a self-contained VHD from the [Google Drive](https://drive.google.com/open?id=0B4XwT5D6qkNmVTd6VlVyaE9DbUE). 
+* You can download a self-contained VHD from the [Google Drive](https://drive.google.com/open?id=1FuZ1JdgmPfnwueJjUUs8uTYSZHX1XUYn). 
 * Create a VirtualBox VM (select ubuntu, 32-bit) and load the above-downloaded VHD.
 * The username and password for the VHD are both `dynodroid`.
 
