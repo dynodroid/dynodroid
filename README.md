@@ -6,7 +6,7 @@ Automatic Input Generation System for Android Apps
 ```
 git clone git@github.com:dynodroid/dynodroid.git <local_repo_path>
 ```
-2. Download the sdcard image from the google drive link: https://drive.google.com/open?id=1mf4kKCNgz059C5hzRKOT5Wk_e9WccmFk
+2. Download the sdcard image from the google drive link: https://drive.google.com/file/d/1b60pSjRiI-uGBNQZmrVLFmHlszob4oxK/view?usp=sharing
 3. Copy the downloaded sdcard image into setup location:
 ```
 cp <path_to_the_downloaded_file> <local_repo_path>/dynodroidsetup/freshavd/emu.avd/sdcard.img
